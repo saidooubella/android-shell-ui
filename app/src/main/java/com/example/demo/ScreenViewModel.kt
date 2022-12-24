@@ -1,161 +1,106 @@
+@file:OptIn(FlowPreview::class)
+
 package com.example.demo
 
 import android.app.Application
-import android.os.Environment
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.persistentListOf
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import kotlin.coroutines.coroutineContext
 
-internal class ScreenViewModel(
-    private val repository: Repository,
-    context: Application,
-) : ViewModel() {
-
-    private val commands: CommandList =
-        CommandList.Builder()
-            .putCommand(Command.Leaf(
-                Metadata.Builder("echo")
-                    .addRequiredNArgs("args", Suggestions.Empty)
-                    .build()
-            ) { arguments ->
-                sendEvent(Event.Message(arguments.joinToString(" ") { it.value }))
-            })
-            .putCommand(Command.Leaf(Metadata.Builder("clear").build()) {
-                sendEvent(Event.Clear)
-            })
-            .putCommand(Command.Leaf(Metadata.Builder("commands").build()) {
-                commands.forEach { sendEvent(Event.Message(it.name)) }
-            })
-            .putCommand(Command.Leaf(Metadata.Builder("apps").build()) {
-                repository.loadLauncherApps().forEach {
-                    sendEvent(Event.Message(it.name) {
-                        appContext.startActivity(it.intent)
-                    })
-                }
-            })
-            .putCommand(Command.Leaf(Metadata.Builder("pwd").build()) {
-                sendEvent(Event.Message(workingDir.canonicalPath))
-            })
-            .putCommand(Command.Leaf(Metadata.Builder("ls").build()) {
-                repository.loadFiles(workingDir).forEach {
-                    sendEvent(Event.Message(it))
-                }
-            })
-            .putCommand(Command.Leaf(
-                Metadata.Builder("mkdir")
-                    .addRequiredArg("folderName", Suggestions.Directories)
-                    .build()
-            ) { arguments ->
-                val fileName = arguments[0].value
-                val file = if (fileName.startsWith('/'))
-                    File(fileName) else File(workingDir, fileName)
-                when {
-                    file.exists() -> sendEvent(Event.Message("$fileName already exists"))
-                    !file.mkdirs() -> sendEvent(Event.Message("failed to create folder"))
-                }
-            })
-            .putCommand(Command.Leaf(
-                Metadata.Builder("cd")
-                    .addRequiredArg("directory", Suggestions.Directories)
-                    .build()
-            ) { arguments ->
-                val file = File(workingDir, arguments[0].value)
-                if (file.exists()) {
-                    workingDir = file
-                } else {
-                    sendEvent(Event.Message("${arguments[0]}: not found"))
-                }
-            })
-            .putCommand(Command.Leaf(Metadata.Builder("exit").build()) {
-                sendEvent(Event.Exit)
-            })
-            .putCommand(Command.Group("notes",
-                CommandList.Builder().putCommand(Command.Leaf(Metadata.Builder("add").build()) {
-                    repository.addNote(Note(content = it[0].value))
-                }).putCommand(Command.Leaf(Metadata.Builder("list").build()) {
-                    repository.notesList().forEachIndexed { index, note ->
-                        sendEvent(Event.Message("$index: ${note.content}"))
-                    }
-                }).build()))
-            .build()
+internal class ScreenViewModel(repository: Repository, context: Application) : ViewModel() {
 
     private var suggestionsJob: Job? = null
     private var execJob: Job? = null
 
-    internal var state by mutableStateOf(ScreenState())
-        private set
+    private val state = MutableStateFlow(ScreenState())
 
-    private val context = object : ShellContext {
-
-        override var workingDir: File = Environment.getExternalStorageDirectory()
-
-        override val appContext: Application
-            get() = context
-
-        override val repository: Repository
-            get() = this@ScreenViewModel.repository
-
-        override val commands: CommandList
-            get() = this@ScreenViewModel.commands
-
-        override suspend fun sendEvent(event: Event): Unit = withContext(Dispatchers.Main) {
-            state = when (event) {
-                is Event.Clear -> state.copy(logs = persistentListOf())
-                is Event.Message -> state.copy(logs = state.logs.add(0,
-                    LogItem(event.content, event.action)))
-                is Event.Exit -> state.copy(exit = true)
+    private val context = ShellContext(context, repository, COMMANDS, { hint ->
+        val deferred = CompletableDeferred<String>(coroutineContext.job)
+        state.update { it.copy(mode = ShellMode.PromptMode(hint, deferred)) }
+        deferred.await()
+    }) { event ->
+        state.update {
+            when (event) {
+                is Event.StartIntent -> it.copy(intent = event.intent)
+                is Event.Clear -> it.copy(logs = persistentListOf())
+                is Event.Exit -> it.copy(exit = true)
+                is Event.Message ->
+                    it.copy(logs = it.logs.add(0, LogItem(event.content, event.action)))
             }
         }
     }
 
+    val screenState = state.asStateFlow()
+
     init {
-        generateSuggestions()
+        viewModelScope.launch {
+            state.distinctUntilChanged { old, new ->
+                old.fieldText.text == new.fieldText.text && old.mode == new.mode
+            }.collectLatest { generateSuggestions() }
+        }
     }
 
     internal fun submitLine() {
-        val content = state.fieldText.text.trim()
-        state = state.copy(fieldText = TextFieldValue(""))
-        generateSuggestions()
-        if (content.isBlank()) return
-        execJob?.cancel()
-        execJob = viewModelScope.launch {
-            state = state.copy(isIdle = false)
-            try {
-                context.sendEvent(Event.Message(">> $content"))
-                exec(content.toArguments(), commands)
-            } finally {
-                state = state.copy(isIdle = true)
+
+        val content = state.value.fieldText.text.trim()
+        state.update { it.copy(fieldText = TextFieldValue("")) }
+
+        if (content.isBlank()) {
+            return
+        }
+
+        when (val shellMode = state.value.mode) {
+            is ShellMode.PromptMode -> {
+                shellMode.deferred.complete(content)
+                state.update { it.copy(mode = ShellMode.RegularMode) }
+            }
+            is ShellMode.RegularMode -> {
+                execJob?.cancel()
+                execJob = viewModelScope.launch {
+                    state.update { it.copy(isIdle = false) }
+                    try {
+                        context.sendEvent(Event.Message(">> $content"))
+                        exec(content.toArguments(), COMMANDS)
+                    } finally {
+                        state.update { it.copy(isIdle = true) }
+                    }
+                }
             }
         }
     }
 
     internal fun changeFieldText(content: TextFieldValue) {
-        state = state.copy(fieldText = content.copy(content.text.replace('\n', ' ')))
-        generateSuggestions()
+        state.update {
+            it.copy(fieldText = content.copy(content.text.replace('\n', ' ')))
+        }
     }
 
     private fun generateSuggestions() {
+
         suggestionsJob?.cancel()
+        suggestionsJob = null
+
+        if (state.value.mode !is ShellMode.RegularMode) {
+            state.update { it.copy(suggestions = SuggestionsResult.EMPTY) }
+            return
+        }
+
         suggestionsJob = viewModelScope.launch {
-            val arguments = state.fieldText.text.toArguments()
+            val arguments = state.value.fieldText.text.toArguments()
             val suggestions = SuggestionsGenerator(context)
-                .suggestions(arguments, state.fieldText.text.length)
-            state = state.copy(suggestions = suggestions)
+                .suggestions(arguments, state.value.fieldText.text.length)
+            state.update { it.copy(suggestions = suggestions) }
         }
     }
 
     internal fun toggleTheme() {
-        state = state.copy(isDark = !state.isDark)
+        state.update { it.copy(isDark = !it.isDark) }
     }
 
     private suspend fun exec(arguments: Arguments, commands: CommandList) {
@@ -181,7 +126,11 @@ internal class ScreenViewModel(
     }
 
     internal fun finishExiting() {
-        state = state.copy(exit = false)
+        state.update { it.copy(exit = false) }
+    }
+
+    internal fun finishIntent() {
+        state.update { it.copy(intent = null) }
     }
 
     internal class Factory(

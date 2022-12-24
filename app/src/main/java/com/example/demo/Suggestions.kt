@@ -18,6 +18,12 @@ internal interface Suggestions {
         }
     }
 
+    object Applications : Suggestions {
+        override suspend fun supply(context: ShellContext, hint: String): List<Suggestion> {
+            return context.repository.loadLauncherApps().map { Suggestion.of(it.name, it.name) }
+        }
+    }
+
     object Directories : Suggestions {
         override suspend fun supply(context: ShellContext, hint: String): List<Suggestion> {
             val index = hint.lastIndexOf(File.separatorChar)

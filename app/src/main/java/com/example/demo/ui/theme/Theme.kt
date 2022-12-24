@@ -48,8 +48,9 @@ internal fun DemoTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            WindowCompat.getInsetsController(window, view)
-                .isAppearanceLightStatusBars = colorScheme.primary.isDark()
+            val controller = WindowCompat.getInsetsController(window, view)
+            controller.isAppearanceLightNavigationBars = colorScheme.primary.isDark()
+            controller.isAppearanceLightStatusBars = colorScheme.primary.isDark()
         }
     }
 

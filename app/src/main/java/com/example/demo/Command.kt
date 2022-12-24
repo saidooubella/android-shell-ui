@@ -1,17 +1,17 @@
 package com.example.demo
 
-internal sealed interface Command {
+import java.util.TreeMap
 
-    val name: String
+internal sealed class Command(val name: String) {
 
     data class Leaf(
         val metadata: Metadata,
         val action: suspend ShellContext.(Arguments) -> Unit,
-    ) : Command {
-        override val name: String = metadata.name
-    }
+    ) : Command(metadata.name)
 
-    data class Group(override val name: String, val commands: CommandList) : Command
+    abstract class Group(name: String) : Command(name) {
+        abstract val commands: CommandList
+    }
 }
 
 internal sealed interface CountValidationResult
@@ -117,7 +117,7 @@ internal class CommandList private constructor(
 
     internal class Builder {
 
-        private val commands = mutableMapOf<String, Command>()
+        private val commands = TreeMap<String, Command>()
 
         internal fun putCommand(command: Command): Builder {
             commands[command.name] = command

@@ -37,6 +37,7 @@ import androidx.compose.material.icons.outlined.Send
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -83,10 +84,12 @@ class MainActivity : ComponentActivity() {
                 if (!Environment.isExternalStorageManager()) {
                     toast("Some commands may not work properly")
                 }
-            }.launch(Intent(
-                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                Uri.parse("package:" + BuildConfig.APPLICATION_ID)
-            ))
+            }.launch(
+                Intent(
+                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:" + BuildConfig.APPLICATION_ID)
+                )
+            )
         } else {
             registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                 if (!granted) toast("Some commands may not work properly")
@@ -94,16 +97,26 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            DemoTheme(viewModel.state.isDark) {
-                if (viewModel.state.exit) {
+
+            val screenState = viewModel.screenState.collectAsState().value
+
+            DemoTheme(screenState.isDark) {
+
+                if (screenState.exit) {
                     finish()
                     viewModel.finishExiting()
                 }
+
+                if (screenState.intent != null) {
+                    startActivity(screenState.intent)
+                    viewModel.finishIntent()
+                }
+
                 Screen(
                     onFieldTextChange = viewModel::changeFieldText,
                     onThemeChange = viewModel::toggleTheme,
                     onSubmit = viewModel::submitLine,
-                    state = viewModel.state
+                    state = screenState
                 )
             }
         }
@@ -238,7 +251,7 @@ private fun ColumnScope.ShellSuggestionsBox(
                                 if (state.fieldText.text.isNotEmpty())
                                     buildString {
                                         append(state.fieldText.text)
-                                        if (state.fieldText.text.last().isWhitespace())
+                                        if (!state.fieldText.text.last().isWhitespace())
                                             append(' ')
                                         append(suggestion.replacement)
                                     }
@@ -266,6 +279,16 @@ private fun ShellTextField(
     onFieldTextChange: (TextFieldValue) -> Unit,
 ) {
     OutlinedTextField(
+        placeholder = {
+            Text(
+                text = when (state.mode) {
+                    is ShellMode.PromptMode -> state.mode.hint
+                    is ShellMode.RegularMode -> "Enter a command..."
+                },
+                fontFamily = FontFamily.Monospace,
+                fontSize = 16.sp,
+            )
+        },
         value = state.fieldText,
         onValueChange = onFieldTextChange,
         modifier = Modifier

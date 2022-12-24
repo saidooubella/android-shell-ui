@@ -24,6 +24,12 @@ internal interface NoteDao {
     suspend fun insertNote(note: Note)
     @Query("SELECT * FROM notes")
     suspend fun notesList(): List<Note>
+    @Query("SELECT * FROM notes ORDER BY id LIMIT 1 OFFSET :index")
+    suspend fun getNote(index: Long): Note?
+    @Query("DELETE FROM notes WHERE id IN ( SELECT id FROM notes ORDER BY id LIMIT 1 OFFSET :index )")
+    suspend fun removeNote(index: Long): Int
+    @Query("DELETE FROM notes")
+    suspend fun clearNotes()
 }
 
 @Database(entities = [Note::class], version = 1)
@@ -54,7 +60,11 @@ internal class Repository(
         packageManager.queryLauncherActivities().sortedBy {
             it.loadLabel(packageManager).toString()
         }.map {
-            AppModel(it.loadLabel(packageManager).toString(), it.loadLaunchIntent(packageManager))
+            AppModel(
+                it.loadLabel(packageManager).toString(),
+                it.activityInfo.packageName,
+                it.loadLaunchIntent(packageManager)
+            )
         }
     }
 
@@ -68,6 +78,18 @@ internal class Repository(
 
     suspend fun notesList(): List<Note> {
         return appDatabase.noteDao.notesList()
+    }
+
+    suspend fun getNote(index: Long): Note? {
+        return appDatabase.noteDao.getNote(index)
+    }
+
+    suspend fun removeNote(index: Long): Int {
+        return appDatabase.noteDao.removeNote(index)
+    }
+
+    suspend fun clearNotes() {
+        appDatabase.noteDao.clearNotes()
     }
 
     companion object {
