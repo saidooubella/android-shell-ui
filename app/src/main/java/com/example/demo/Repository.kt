@@ -22,12 +22,16 @@ internal data class Note(
 internal interface NoteDao {
     @Insert
     suspend fun insertNote(note: Note)
+
     @Query("SELECT * FROM notes")
     suspend fun notesList(): List<Note>
+
     @Query("SELECT * FROM notes ORDER BY id LIMIT 1 OFFSET :index")
     suspend fun getNote(index: Long): Note?
+
     @Query("DELETE FROM notes WHERE id IN ( SELECT id FROM notes ORDER BY id LIMIT 1 OFFSET :index )")
     suspend fun removeNote(index: Long): Int
+
     @Query("DELETE FROM notes")
     suspend fun clearNotes()
 }
@@ -56,16 +60,17 @@ internal class Repository(
     private val appDatabase: AppDatabase,
 ) {
 
-    suspend fun loadLauncherApps() = withContext(Dispatchers.IO) {
-        packageManager.queryLauncherActivities().sortedBy {
-            it.loadLabel(packageManager).toString()
-        }.map {
-            AppModel(
-                it.loadLabel(packageManager).toString(),
-                it.activityInfo.packageName,
-                it.loadLaunchIntent(packageManager)
-            )
-        }
+    suspend fun loadLauncherApps(query: String = "") = withContext(Dispatchers.IO) {
+        packageManager.queryLauncherActivities()
+            .filter { query in it.loadLabel(packageManager) }
+            .map {
+                AppModel(
+                    it.loadLabel(packageManager).toString(),
+                    it.activityInfo.packageName,
+                    it.loadLaunchIntent(packageManager)
+                )
+            }
+            .sortedBy { it.name }
     }
 
     suspend fun loadFiles(file: File) = withContext(Dispatchers.IO) {

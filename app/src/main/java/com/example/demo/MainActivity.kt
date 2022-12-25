@@ -19,6 +19,7 @@ import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -60,6 +61,13 @@ import com.example.demo.ui.theme.DemoTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
+internal val MANAGE_FILES_SETTINGS: Intent
+    @RequiresApi(Build.VERSION_CODES.R)
+    get() = Intent(
+        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+        Uri.parse("package:" + BuildConfig.APPLICATION_ID)
+    )
+
 private fun Context.toast(message: String, length: Int = Toast.LENGTH_SHORT) {
     Toast.makeText(this, message, length).show()
 }
@@ -79,21 +87,16 @@ class MainActivity : ComponentActivity() {
 
         onBackPressedDispatcher.addCallback(this, false) {}
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
-            registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-                if (!Environment.isExternalStorageManager()) {
-                    toast("Some commands may not work properly")
-                }
-            }.launch(
-                Intent(
-                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    Uri.parse("package:" + BuildConfig.APPLICATION_ID)
-                )
-            )
-        } else {
-            registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-                if (!granted) toast("Some commands may not work properly")
-            }.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            val handler = viewModel.screenState.value.permissions ?: return@registerForActivityResult
+            handler.continuation.complete(it.values.all { granted -> granted })
+            viewModel.finishPermissions()
+        }
+
+        val intentResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            val handler = viewModel.screenState.value.intentForResult ?: return@registerForActivityResult
+            handler.continuation.complete(it)
+            viewModel.finishIntentForResult()
         }
 
         setContent {
@@ -110,6 +113,14 @@ class MainActivity : ComponentActivity() {
                 if (screenState.intent != null) {
                     startActivity(screenState.intent)
                     viewModel.finishIntent()
+                }
+
+                if (screenState.intentForResult != null) {
+                    intentResult.launch(screenState.intentForResult.intent)
+                }
+
+                if (screenState.permissions != null) {
+                    permissions.launch(screenState.permissions.permissions)
                 }
 
                 Screen(

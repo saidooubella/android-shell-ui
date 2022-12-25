@@ -11,3 +11,6 @@ class Suggestion private constructor(
         private fun wrap(value: String) = if (value.trim().none { it.isWhitespace() }) value else '"' + value.trim() + '"'
     }
 }
+
+val String.asSuggestion: Suggestion
+    get() = Suggestion.of(this, this)

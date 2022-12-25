@@ -1,5 +1,3 @@
-@file:OptIn(FlowPreview::class)
-
 package com.example.demo
 
 import android.app.Application
@@ -8,10 +6,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlin.coroutines.coroutineContext
 
 internal class ScreenViewModel(repository: Repository, context: Application) : ViewModel() {
 
@@ -20,20 +16,8 @@ internal class ScreenViewModel(repository: Repository, context: Application) : V
 
     private val state = MutableStateFlow(ScreenState())
 
-    private val context = ShellContext(context, repository, COMMANDS, { hint ->
-        val deferred = CompletableDeferred<String>(coroutineContext.job)
-        state.update { it.copy(mode = ShellMode.PromptMode(hint, deferred)) }
-        deferred.await()
-    }) { event ->
-        state.update {
-            when (event) {
-                is Event.StartIntent -> it.copy(intent = event.intent)
-                is Event.Clear -> it.copy(logs = persistentListOf())
-                is Event.Exit -> it.copy(exit = true)
-                is Event.Message ->
-                    it.copy(logs = it.logs.add(0, LogItem(event.content, event.action)))
-            }
-        }
+    private val context = object : ShellContext(context, repository, COMMANDS) {
+        override suspend fun <R> sendAction(action: Action<R>) = action.execute(state)
     }
 
     val screenState = state.asStateFlow()
@@ -65,7 +49,7 @@ internal class ScreenViewModel(repository: Repository, context: Application) : V
                 execJob = viewModelScope.launch {
                     state.update { it.copy(isIdle = false) }
                     try {
-                        context.sendEvent(Event.Message(">> $content"))
+                        context.sendAction(Action.Message(">> $content"))
                         exec(content.toArguments(), COMMANDS)
                     } finally {
                         state.update { it.copy(isIdle = true) }
@@ -105,17 +89,17 @@ internal class ScreenViewModel(repository: Repository, context: Application) : V
 
     private suspend fun exec(arguments: Arguments, commands: CommandList) {
         when (arguments.isEmpty()) {
-            true -> context.sendEvent(Event.Message("Too few arguments"))
+            true -> context.sendAction(Action.Message("Too few arguments"))
             else -> when (val command = commands[arguments[0].value]) {
                 is Command.Group -> exec(arguments.dropFirst(), command.commands)
                 is Command.Leaf -> arguments.dropFirst().let { leafArgs ->
                     when (command.metadata.validateCount(leafArgs.count())) {
-                        TooManyArgs -> context.sendEvent(Event.Message("Too many arguments"))
-                        TooFewArgs -> context.sendEvent(Event.Message("Too few arguments"))
+                        TooManyArgs -> context.sendAction(Action.Message("Too many arguments"))
+                        TooFewArgs -> context.sendAction(Action.Message("Too few arguments"))
                         ExactArgs -> command.action(context, leafArgs)
                     }
                 }
-                null -> context.sendEvent(Event.Message("command not found ${arguments[0].value}"))
+                null -> context.sendAction(Action.Message("command not found ${arguments[0].value}"))
             }
         }
     }
@@ -129,8 +113,16 @@ internal class ScreenViewModel(repository: Repository, context: Application) : V
         state.update { it.copy(exit = false) }
     }
 
+    internal fun finishIntentForResult() {
+        state.update { it.copy(intentForResult = null) }
+    }
+
     internal fun finishIntent() {
         state.update { it.copy(intent = null) }
+    }
+
+    internal fun finishPermissions() {
+        state.update { it.copy(permissions = null) }
     }
 
     internal class Factory(

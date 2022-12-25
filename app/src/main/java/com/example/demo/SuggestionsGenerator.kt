@@ -1,5 +1,8 @@
 package com.example.demo
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
 internal class SuggestionsResult(
     internal val suggestions: List<Suggestion>,
     internal val mergeAction: MergeAction,
@@ -19,14 +22,14 @@ internal class SuggestionsGenerator(private val shell: ShellContext) {
     internal suspend fun suggestions(
         args: Arguments,
         lineLength: Int,
-    ): SuggestionsResult {
+    ): SuggestionsResult = withContext(Dispatchers.Default) {
         if (args.isEmpty()) {
-            return SuggestionsResult(Suggestions.Commands.supply(shell, ""), MergeAction.Append)
+            return@withContext SuggestionsResult(Suggestions.Commands.supply(shell, ""), MergeAction.Append)
         }
         val first: Argument = args[0]
         val parent: Command? = shell.commands[first.value]
         if (parent == null || first.end == lineLength) {
-            return when (args.count() > 1 || first.end != lineLength) {
+            return@withContext when (args.count() > 1 || first.end != lineLength) {
                 true -> SuggestionsResult.EMPTY
                 else -> SuggestionsResult(
                     filterSuggestions(shell.commands.names(), first.value),
@@ -34,7 +37,7 @@ internal class SuggestionsGenerator(private val shell: ShellContext) {
                 )
             }
         }
-        return proceedCommand(args, parent, lineLength)
+        return@withContext proceedCommand(args, parent, lineLength)
     }
 
     private suspend fun proceedCommand(

@@ -6,7 +6,7 @@ import androidx.core.net.toUri
 internal data class AppModel(
     internal val name: String,
     internal val packageName: String,
-    internal val intent: Intent,
+    internal val launchIntent: Intent,
 )
 
 internal val AppModel.uninstallIntent: Intent
