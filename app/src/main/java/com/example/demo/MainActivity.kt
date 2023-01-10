@@ -2,6 +2,7 @@
     ExperimentalMaterial3Api::class,
     ExperimentalComposeUiApi::class,
     ExperimentalLayoutApi::class,
+    ExperimentalLifecycleComposeApi::class,
 )
 
 package com.example.demo
@@ -11,7 +12,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -21,6 +21,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
@@ -37,9 +38,7 @@ import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Send
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -47,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -57,9 +57,14 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.compose.ExperimentalLifecycleComposeApi
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.demo.db.AppDatabase
 import com.example.demo.ui.theme.DemoTheme
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal val MANAGE_FILES_SETTINGS: Intent
     @RequiresApi(Build.VERSION_CODES.R)
@@ -87,21 +92,25 @@ class MainActivity : ComponentActivity() {
 
         onBackPressedDispatcher.addCallback(this, false) {}
 
-        val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-            val handler = viewModel.screenState.value.permissions ?: return@registerForActivityResult
-            handler.continuation.complete(it.values.all { granted -> granted })
-            viewModel.finishPermissions()
-        }
+        val permissions =
+            registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+                val handler =
+                    viewModel.screenState.value.permissions ?: return@registerForActivityResult
+                handler.continuation.complete(it.values.all { granted -> granted })
+                viewModel.finishPermissions()
+            }
 
-        val intentResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            val handler = viewModel.screenState.value.intentForResult ?: return@registerForActivityResult
-            handler.continuation.complete(it)
-            viewModel.finishIntentForResult()
-        }
+        val intentResult =
+            registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+                val handler =
+                    viewModel.screenState.value.intentForResult ?: return@registerForActivityResult
+                handler.continuation.complete(it)
+                viewModel.finishIntentForResult()
+            }
 
         setContent {
 
-            val screenState = viewModel.screenState.collectAsState().value
+            val screenState = viewModel.screenState.collectAsStateWithLifecycle().value
 
             DemoTheme(screenState.isDark) {
 
@@ -158,7 +167,6 @@ private fun Screen(
         ) {
             ShellLogsList(state)
             ShellEmptyView(state)
-            ShellInProgressIndicator(state)
         }
     }
 }
@@ -174,21 +182,19 @@ private fun ShellBottomBar(
             .fillMaxWidth()
             .navigationBarsPadding()
             .imePadding()
-            .padding(vertical = 16.dp)
+            .padding(vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         ShellTextField(onSubmit, state, onFieldTextChange)
+        AnimatedVisibility(!state.isIdle) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .fillMaxWidth()
+            )
+        }
         ShellSuggestionsBox(state, onFieldTextChange)
-    }
-}
-
-@Composable
-private fun BoxScope.ShellInProgressIndicator(state: ScreenState) {
-    AnimatedVisibility(
-        modifier = Modifier.align(Alignment.Center),
-        enter = fadeIn(), exit = fadeOut(),
-        visible = !state.isIdle
-    ) {
-        CircularProgressIndicator()
     }
 }
 
@@ -238,18 +244,17 @@ private fun ShellLogsList(
 }
 
 @Composable
-private fun ColumnScope.ShellSuggestionsBox(
+private fun ShellSuggestionsBox(
     state: ScreenState,
     onFieldTextChange: (TextFieldValue) -> Unit,
 ) {
     AnimatedVisibility(
-        visible = state.suggestions.suggestions.isNotEmpty(),
+        visible = state.isIdle && state.suggestions.suggestions.isNotEmpty(),
     ) {
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
-                .padding(top = 8.dp),
+                .height(50.dp),
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -276,7 +281,7 @@ private fun ColumnScope.ShellSuggestionsBox(
                         }
                         onFieldTextChange(TextFieldValue(text, TextRange(text.length, text.length)))
                     },
-                    label = { Text(suggestion.label) }
+                    label = { Text(suggestion.label, fontSize = 16.sp) }
                 )
             }
         }

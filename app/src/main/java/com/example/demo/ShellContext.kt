@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.os.Environment
 import androidx.activity.result.ActivityResult
+import com.example.demo.commands.CommandList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,12 +19,17 @@ internal abstract class ShellContext(
     val commands: CommandList,
 ) {
 
-    var workingDir: File = Environment.getExternalStorageDirectory()
+    internal var workingDir: File = Environment.getExternalStorageDirectory()
 
-    abstract suspend fun <R> sendAction(action: Action<R>): R
+    internal abstract suspend fun <R> sendAction(action: Action<R>): R
 
-    inline fun normalizePath(path: String, transformer: (String) -> String = { it }): File {
-        return when (path.startsWith(File.separatorChar)) {
+    internal fun removeWorkingDir(path: String): String {
+        val root = workingDir.path
+        return if (path.startsWith(root)) path.substring(root.length + 1, path.length) else path
+    }
+
+    internal inline fun normalizePath(path: String, transformer: (String) -> String = { it }): File {
+        return when (path.startsWith(File.separator)) {
             false -> File(workingDir, transformer(path))
             else -> File(transformer(path))
         }

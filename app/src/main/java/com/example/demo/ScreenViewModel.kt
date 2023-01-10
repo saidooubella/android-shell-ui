@@ -6,6 +6,10 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.demo.commands.Arguments
+import com.example.demo.commands.Command
+import com.example.demo.commands.CommandList
+import com.example.demo.commands.CountCheckResult
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -94,9 +98,9 @@ internal class ScreenViewModel(repository: Repository, context: Application) : V
                 is Command.Group -> exec(arguments.dropFirst(), command.commands)
                 is Command.Leaf -> arguments.dropFirst().let { leafArgs ->
                     when (command.metadata.validateCount(leafArgs.count())) {
-                        TooManyArgs -> context.sendAction(Action.Message("Too many arguments"))
-                        TooFewArgs -> context.sendAction(Action.Message("Too few arguments"))
-                        ExactArgs -> command.action(context, leafArgs)
+                        CountCheckResult.TooManyArgs -> context.sendAction(Action.Message("Too many arguments"))
+                        CountCheckResult.TooFewArgs -> context.sendAction(Action.Message("Too few arguments"))
+                        CountCheckResult.ExactArgs -> command.action(context, leafArgs)
                     }
                 }
                 null -> context.sendAction(Action.Message("command not found ${arguments[0].value}"))

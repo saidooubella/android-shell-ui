@@ -1,25 +1,33 @@
 package com.example.demo
 
+import android.Manifest
+import android.R.attr.shell
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE
 import android.hardware.camera2.CameraCharacteristics.LENS_FACING
 import android.hardware.camera2.CameraManager
-import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.provider.Settings
 import androidx.annotation.RequiresApi
 import androidx.compose.ui.text.capitalize
 import androidx.compose.ui.text.intl.Locale
+import androidx.core.app.ActivityCompat
 import androidx.core.content.getSystemService
+import com.example.demo.commands.Command
+import com.example.demo.commands.CommandList
+import com.example.demo.commands.Metadata
+import com.example.demo.db.notes.Note
 import java.io.File
-import java.io.IOError
 import java.io.IOException
+
 
 private val NOTE_COMMAND_GROUP = object : Command.Group("notes") {
 
@@ -120,8 +128,12 @@ private val APP_COMMAND_GROUP = object : Command.Group("apps") {
 
     private suspend fun ShellContext.lookupApplication(appName: String): AppModel? {
 
-        val apps = repository.loadLauncherApps(appName).takeIf { it.isNotEmpty() } ?: run {
-            sendAction(Action.Message("App not found"))
+        val apps = repository
+            .loadLauncherApps { it.equals(appName, true) }
+            .takeIf { it.isNotEmpty() }
+
+        if (apps == null) {
+            sendAction(Action.Message("'$appName' not found"))
             return null
         }
 
@@ -135,8 +147,8 @@ private val APP_COMMAND_GROUP = object : Command.Group("apps") {
             sendAction(Action.Message("$index: ${appModel.packageName}"))
         }
 
-        val index = sendAction(Action.Prompt("Enter a valid index")).toIntOrNull()
-            ?.takeIf { it in apps.indices }
+        val index = sendAction(Action.Prompt("Enter a valid index"))
+            .toIntOrNull()?.takeIf { it in apps.indices }
 
         if (index == null) {
             sendAction(Action.Message("Invalid index"))
@@ -149,7 +161,7 @@ private val APP_COMMAND_GROUP = object : Command.Group("apps") {
 
 private val LS_COMMAND = Command.Leaf(Metadata.Builder("ls").build()) {
     repository.loadFiles(workingDir).forEach {
-        sendAction(Action.Message(it))
+        sendAction(Action.Message(it.name))
     }
 }
 
@@ -200,13 +212,14 @@ private val EXIT_COMMAND = Command.Leaf(Metadata.Builder("exit").build()) {
     sendAction(Action.Exit)
 }
 
+@RequiresApi(Build.VERSION_CODES.M)
 private val FLASH_COMMAND = Command.Leaf(
     Metadata.Builder("flash")
         .addRequiredArg(
             "facing",
-            Suggestions.Custom(listOf("front".asSuggestion, "back".asSuggestion))
+            Suggestions.Custom(listOf(Suggestion("front"), Suggestion("back")))
         )
-        .addRequiredArg("state", Suggestions.Custom(listOf("on".asSuggestion, "off".asSuggestion)))
+        .addRequiredArg("state", Suggestions.Custom(listOf(Suggestion("on"), Suggestion("off"))))
         .build()
 ) { arguments ->
 
@@ -220,33 +233,39 @@ private val FLASH_COMMAND = Command.Leaf(
         return@Leaf
     }
 
-    if (appContext.hasNotPermission(android.Manifest.permission.CAMERA)) {
-        if (!sendAction(Action.RequestPermissions(arrayOf(android.Manifest.permission.CAMERA)))) {
-            sendAction(Action.Message("Camera permission is denied"))
-            return@Leaf
-        }
-    }
-
     val manager = appContext.getSystemService<CameraManager>() ?: run {
-        sendAction(Action.Message("Camera isn't supported on your device"))
+        sendAction(Action.Message("Camera isn't supported on this device"))
         return@Leaf
     }
 
-    val cameraId = manager.cameraIdList.find { manager.isFrontFlash(it) == (facing == "front") }
-
-    if (cameraId == null || manager.getCameraCharacteristics(cameraId)[FLASH_INFO_AVAILABLE] == false) {
-        sendAction(Action.Message("${facing.capitalize(Locale.current)} flash isn't available on your device"))
+    val cameraId = manager.cameraIdList.find { manager.isWhatCamera(facing, it) } ?: run {
+        sendAction(Action.Message("The $facing camera isn't available"))
         return@Leaf
     }
 
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        manager.setTorchMode(cameraId, state == "on")
+    if (!manager.hasFlash(cameraId)) {
+        sendAction(Action.Message("${facing.capitalize(Locale.current)} camera doesn't have a flash unit"))
+        return@Leaf
+    }
+
+    manager.setTorchMode(cameraId, state == "on")
+}
+
+private fun CameraManager.hasFlash(cameraId: String): Boolean {
+    return try {
+        getCameraCharacteristics(cameraId)[CameraCharacteristics.FLASH_INFO_AVAILABLE] == true
+    } catch (e: IllegalArgumentException) {
+        false
     }
 }
 
-private fun CameraManager.isFrontFlash(cameraId: String): Boolean {
+private fun CameraManager.isWhatCamera(facing: String, cameraId: String): Boolean {
     return try {
-        getCameraCharacteristics(cameraId)[LENS_FACING] == CameraCharacteristics.LENS_FACING_FRONT
+        getCameraCharacteristics(cameraId)[LENS_FACING] == when (facing) {
+            "front" -> CameraCharacteristics.LENS_FACING_FRONT
+            "back" -> CameraCharacteristics.LENS_FACING_BACK
+            else -> error("Invalid facing mode '$facing'")
+        }
     } catch (e: IllegalArgumentException) {
         false
     }
@@ -298,6 +317,51 @@ private val TOUCH_COMMAND = Command.Leaf(
     }
 }
 
+@SuppressLint("MissingPermission")
+private val BT_COMMAND = Command.Leaf(Metadata.Builder("bt").build()) {
+
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+        if (appContext.hasNotPermission(Manifest.permission.BLUETOOTH_ADMIN)
+            || appContext.hasNotPermission(Manifest.permission.BLUETOOTH_CONNECT)
+            || appContext.hasNotPermission(Manifest.permission.BLUETOOTH)
+        ) {
+            if (!sendAction(Action.RequestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADMIN, Manifest.permission.BLUETOOTH)))) {
+                sendAction(Action.Message("Bluetooth permission denied"))
+                return@Leaf
+            }
+        }
+    } else {
+        if (appContext.hasNotPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
+            if (!sendAction(Action.RequestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT)))) {
+                sendAction(Action.Message("Bluetooth permission denied"))
+                return@Leaf
+            }
+        }
+    }
+
+    val adapter = appContext.getSystemService<BluetoothManager>()?.adapter ?: run {
+        sendAction(Action.Message("Bluetooth isn't supported on this device"))
+        return@Leaf
+    }
+
+    val shouldEnable = !adapter.isEnabled
+
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+        if (shouldEnable) adapter.enable() else adapter.disable()
+    } else if (shouldEnable) {
+        val result = sendAction(Action.StartIntentForResult(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)))
+        if (result.resultCode != Activity.RESULT_OK) {
+            sendAction(Action.Message("Bluetooth wasn't enabled"))
+            return@Leaf
+        }
+    } else {
+        sendAction(Action.Message("Bluetooth cannot be disabled. This action must be done manually"))
+        return@Leaf
+    }
+
+    sendAction(Action.Message("Bluetooth is " + if (shouldEnable) "enabled" else "disabled"))
+}
+
 internal val COMMANDS = CommandList.Builder()
     .putCommand(ECHO_COMMAND)
     .putCommand(CLEAR_COMMAND)
@@ -306,8 +370,13 @@ internal val COMMANDS = CommandList.Builder()
     .putCommand(LS_COMMAND)
     .putCommand(MAKE_DIR_COMMAND)
     .putCommand(TOUCH_COMMAND)
-    .putCommand(FLASH_COMMAND)
+    .apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            putCommand(FLASH_COMMAND)
+        }
+    }
     .putCommand(CD_COMMAND)
     .putCommand(EXIT_COMMAND)
     .putCommand(NOTE_COMMAND_GROUP)
+    .putCommand(BT_COMMAND)
     .build()

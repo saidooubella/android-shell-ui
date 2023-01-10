@@ -1,5 +1,9 @@
 package com.example.demo
 
+import com.example.demo.commands.Arguments
+import com.example.demo.commands.Command
+import com.example.demo.commands.CountCheckResult
+import com.example.demo.commands.Parameter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -82,7 +86,7 @@ internal class SuggestionsGenerator(private val shell: ShellContext) {
             }
             return SuggestionsResult(command.metadata.params[0].suggestions.supply(shell, ""), MergeAction.Append)
         }
-        if (command.metadata.validateCount(args.count()) == TooManyArgs) {
+        if (command.metadata.validateCount(args.count()) == CountCheckResult.TooManyArgs) {
             return SuggestionsResult.EMPTY
         }
         val lastArg: Argument = args[args.count() - 1]
@@ -105,6 +109,6 @@ internal class SuggestionsGenerator(private val shell: ShellContext) {
     }
 
     private fun filterSuggestions(names: Collection<String>, query: String): List<Suggestion> {
-        return names.filter { it.indexOf(query) != -1 }.map { Suggestion.of(it) }
+        return names.filter { it.indexOf(query) != -1 }.map { Suggestion(it) }
     }
 }
