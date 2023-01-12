@@ -3,9 +3,10 @@ package com.example.demo
 import android.content.Intent
 import androidx.activity.result.ActivityResult
 import androidx.compose.ui.text.input.TextFieldValue
+import com.example.demo.models.LogItem
+import com.example.demo.suggestions.SuggestionsResult
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
-import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CompletableDeferred
 
 internal data class ScreenState(

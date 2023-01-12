@@ -1,6 +1,6 @@
 package com.example.demo.commands
 
-import com.example.demo.Suggestions
+import com.example.demo.suggestions.Suggestions
 
 internal data class Parameter(
     internal val name: String,

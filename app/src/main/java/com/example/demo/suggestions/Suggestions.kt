@@ -1,5 +1,6 @@
-package com.example.demo
+package com.example.demo.suggestions
 
+import com.example.demo.shell.ShellContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -50,6 +51,7 @@ private suspend fun loadFiles(
     context: ShellContext,
     dirsOnly: Boolean
 ): List<Suggestion> {
+
     val index = hint.lastIndexOf(File.separator)
     val root = context.normalizePath(hint) {
         if (index != -1) hint.substring(0, index + 1) else ""

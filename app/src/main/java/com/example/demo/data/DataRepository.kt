@@ -1,4 +1,4 @@
-package com.example.demo
+package com.example.demo.data
 
 import android.content.ContentResolver
 import android.content.Intent
@@ -7,26 +7,28 @@ import android.content.pm.ResolveInfo
 import android.os.Build
 import android.provider.ContactsContract.CommonDataKinds.Phone.*
 import androidx.room.*
-import com.example.demo.db.AppDatabase
-import com.example.demo.db.notes.Note
+import com.example.demo.data.notes.Note
+import com.example.demo.models.LauncherApp
+import com.example.demo.models.Contact
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.coroutines.coroutineContext
 
-
-internal class Repository(
+internal class DataRepository(
     private val packageManager: PackageManager,
-    private val appDatabase: AppDatabase,
+    private val appDatabase: ShellDatabase,
     private val resolver: ContentResolver,
 ) {
 
-    suspend fun loadLauncherApps(predicate: (String) -> Boolean = { true }) = withContext(Dispatchers.IO) {
+    suspend fun loadLauncherApps(
+        predicate: (String) -> Boolean = { true }
+    ) = withContext(Dispatchers.IO) {
         packageManager.queryLauncherActivities()
             .filter { predicate(it.loadLabel(packageManager).toString()) }
             .map {
-                AppModel(
+                LauncherApp(
                     it.loadLabel(packageManager).toString(),
                     it.activityInfo.packageName,
                     it.loadLaunchIntent(packageManager)
@@ -35,7 +37,9 @@ internal class Repository(
             .sortedBy { it.name }
     }
 
-    suspend fun loadFiles(file: File, query: String = "", dirsOnly: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun loadFiles(
+        file: File, query: String = "", dirsOnly: Boolean = false
+    ) = withContext(Dispatchers.IO) {
         file.listFiles()?.filter {
             (if (dirsOnly) it.isDirectory else true) && it.name.contains(query, true)
         }?.sortedBy { it.name } ?: listOf()
@@ -87,8 +91,6 @@ internal class Repository(
 
     companion object {
 
-        private val FILTER_INTENT = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-
         private const val IS_SDN_CONTACT = "is_sdn_contact"
 
         private val PROJECTION = arrayOf(DISPLAY_NAME_PRIMARY, NUMBER)
@@ -98,6 +100,12 @@ internal class Repository(
 
         private const val SORT_ORDER = "$DISPLAY_NAME_PRIMARY ASC"
 
+        private fun ResolveInfo.loadLaunchIntent(packageManager: PackageManager): Intent {
+            return Intent(packageManager.getLaunchIntentForPackage(activityInfo.packageName))
+        }
+
+        private val FILTER_INTENT = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+
         @Suppress("DEPRECATION")
         private fun PackageManager.queryLauncherActivities(): MutableList<ResolveInfo> {
             return if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
@@ -106,11 +114,6 @@ internal class Repository(
                 queryIntentActivities(FILTER_INTENT, PackageManager.ResolveInfoFlags.of(0))
             }
         }
-
-        private fun ResolveInfo.loadLaunchIntent(packageManager: PackageManager): Intent {
-            return Intent(packageManager.getLaunchIntentForPackage(activityInfo.packageName))
-        }
     }
 }
 
-internal data class Contact(val name: String, val phone: String)

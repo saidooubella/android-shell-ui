@@ -6,13 +6,11 @@
 
 package com.example.demo
 
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.activity.compose.setContent
@@ -56,7 +54,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.demo.db.AppDatabase
+import com.example.demo.data.ShellDatabase
+import com.example.demo.data.DataRepository
+import com.example.demo.suggestions.MergeAction
 import com.example.demo.ui.theme.DemoTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -68,10 +68,6 @@ internal val MANAGE_FILES_SETTINGS: Intent
         Uri.parse("package:" + BuildConfig.APPLICATION_ID)
     )
 
-private fun Context.toast(message: String, length: Int = Toast.LENGTH_SHORT) {
-    Toast.makeText(this, message, length).show()
-}
-
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -79,9 +75,9 @@ class MainActivity : ComponentActivity() {
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        val viewModel by viewModels<ScreenViewModel> {
-            ScreenViewModel.Factory(
-                application, Repository(packageManager, AppDatabase.get(application), contentResolver)
+        val viewModel by viewModels<MainViewModel> {
+            MainViewModel.Factory(
+                application, DataRepository(packageManager, ShellDatabase.get(application), contentResolver)
             )
         }
 

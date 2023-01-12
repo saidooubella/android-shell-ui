@@ -1,6 +1,6 @@
 package com.example.demo.commands
 
-import com.example.demo.Suggestions
+import com.example.demo.suggestions.Suggestions
 
 internal class Metadata private constructor(
     internal val name: String,

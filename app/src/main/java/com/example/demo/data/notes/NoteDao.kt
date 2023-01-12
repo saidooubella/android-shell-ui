@@ -1,9 +1,8 @@
-package com.example.demo.db.notes
+package com.example.demo.data.notes
 
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
-import com.example.demo.db.notes.Note
 
 @Dao
 internal interface NoteDao {

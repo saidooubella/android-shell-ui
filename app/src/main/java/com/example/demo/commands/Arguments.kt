@@ -1,6 +1,6 @@
 package com.example.demo.commands
 
-import com.example.demo.Argument
+import com.example.demo.models.Argument
 
 internal class Arguments(
     private val arguments: List<Argument>,

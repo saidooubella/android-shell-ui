@@ -1,6 +1,6 @@
 package com.example.demo.commands
 
-import com.example.demo.ShellContext
+import com.example.demo.shell.ShellContext
 
 internal sealed class Command(val name: String) {
 

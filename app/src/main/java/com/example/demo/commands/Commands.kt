@@ -1,4 +1,4 @@
-package com.example.demo
+package com.example.demo.commands
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -20,10 +20,15 @@ import androidx.compose.ui.text.capitalize
 import androidx.compose.ui.text.intl.Locale
 import androidx.core.content.getSystemService
 import androidx.core.net.toUri
-import com.example.demo.commands.Command
-import com.example.demo.commands.CommandList
-import com.example.demo.commands.Metadata
-import com.example.demo.db.notes.Note
+import com.example.demo.MANAGE_FILES_SETTINGS
+import com.example.demo.shell.ShellContext
+import com.example.demo.data.notes.Note
+import com.example.demo.models.LauncherApp
+import com.example.demo.models.settingsIntent
+import com.example.demo.models.uninstallIntent
+import com.example.demo.shell.Action
+import com.example.demo.suggestions.Suggestion
+import com.example.demo.suggestions.Suggestions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.FileReader
@@ -132,7 +137,7 @@ private val APP_COMMAND_GROUP = object : Command.Group("apps") {
         .putCommand(OPEN_OPTION)
         .build()
 
-    private suspend fun ShellContext.lookupApplication(appName: String): AppModel? {
+    private suspend fun ShellContext.lookupApplication(appName: String): LauncherApp? {
 
         val apps = repository
             .loadLauncherApps { it.equals(appName, true) }

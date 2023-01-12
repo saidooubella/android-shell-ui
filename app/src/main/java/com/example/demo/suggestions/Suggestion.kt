@@ -1,4 +1,4 @@
-package com.example.demo
+package com.example.demo.suggestions
 
 class Suggestion(internal val label: String, replacement: String = "$label ") {
     internal val replacement: String = wrap(replacement)

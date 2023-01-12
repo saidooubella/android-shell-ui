@@ -1,25 +1,13 @@
-package com.example.demo
+package com.example.demo.suggestions
 
+import com.example.demo.models.Argument
+import com.example.demo.shell.ShellContext
 import com.example.demo.commands.Arguments
 import com.example.demo.commands.Command
 import com.example.demo.commands.CountCheckResult
 import com.example.demo.commands.Parameter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
-internal class SuggestionsResult(
-    internal val suggestions: List<Suggestion>,
-    internal val mergeAction: MergeAction,
-) {
-    companion object {
-        internal val EMPTY = SuggestionsResult(emptyList(), MergeAction.Append)
-    }
-}
-
-internal sealed interface MergeAction {
-    class Replace(val start: Int, val end: Int) : MergeAction
-    object Append : MergeAction
-}
 
 internal class SuggestionsGenerator(private val shell: ShellContext) {
 

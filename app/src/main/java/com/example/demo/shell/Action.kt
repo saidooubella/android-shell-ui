@@ -1,40 +1,18 @@
-package com.example.demo
+package com.example.demo.shell
 
-import android.app.Application
 import android.content.Intent
-import android.os.Environment
 import androidx.activity.result.ActivityResult
-import com.example.demo.commands.CommandList
+import com.example.demo.IntentForResult
+import com.example.demo.models.LogItem
+import com.example.demo.PermissionsHandler
+import com.example.demo.ScreenState
+import com.example.demo.ShellMode
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.job
-import java.io.File
 import kotlin.coroutines.coroutineContext
-
-internal abstract class ShellContext(
-    val appContext: Application,
-    val repository: Repository,
-    val commands: CommandList,
-) {
-
-    internal var workingDir: File = Environment.getExternalStorageDirectory()
-
-    internal abstract suspend fun <R> sendAction(action: Action<R>): R
-
-    internal fun removeWorkingDir(path: String): String {
-        val root = workingDir.path
-        return if (path.startsWith(root)) path.substring(root.length + 1, path.length) else path
-    }
-
-    internal inline fun normalizePath(path: String, transformer: (String) -> String = { it }): File {
-        return when (path.startsWith(File.separator)) {
-            false -> File(workingDir, transformer(path))
-            else -> File(transformer(path))
-        }
-    }
-}
 
 internal sealed interface Action<R> {
 

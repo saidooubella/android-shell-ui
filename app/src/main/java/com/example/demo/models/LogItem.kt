@@ -1,4 +1,4 @@
-package com.example.demo
+package com.example.demo.models
 
 internal data class LogItem(
     internal val message: String,

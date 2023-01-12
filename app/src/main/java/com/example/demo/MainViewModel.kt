@@ -6,14 +6,21 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.demo.commands.*
 import com.example.demo.commands.Arguments
 import com.example.demo.commands.Command
 import com.example.demo.commands.CommandList
 import com.example.demo.commands.CountCheckResult
+import com.example.demo.data.DataRepository
+import com.example.demo.models.parseArguments
+import com.example.demo.shell.Action
+import com.example.demo.shell.ShellContext
+import com.example.demo.suggestions.SuggestionsGenerator
+import com.example.demo.suggestions.SuggestionsResult
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-internal class ScreenViewModel(repository: Repository, context: Application) : ViewModel() {
+internal class MainViewModel(repository: DataRepository, context: Application) : ViewModel() {
 
     private var suggestionsJob: Job? = null
     private var execJob: Job? = null
@@ -54,7 +61,7 @@ internal class ScreenViewModel(repository: Repository, context: Application) : V
                     state.update { it.copy(isIdle = false) }
                     try {
                         context.sendAction(Action.Message(">> $content"))
-                        exec(content.toArguments(), COMMANDS)
+                        exec(content.parseArguments(), COMMANDS)
                     } finally {
                         state.update { it.copy(isIdle = true) }
                     }
@@ -80,7 +87,7 @@ internal class ScreenViewModel(repository: Repository, context: Application) : V
         }
 
         suggestionsJob = viewModelScope.launch {
-            val arguments = state.value.fieldText.text.toArguments()
+            val arguments = state.value.fieldText.text.parseArguments()
             val suggestions = SuggestionsGenerator(context)
                 .suggestions(arguments, state.value.fieldText.text.length)
             state.update { it.copy(suggestions = suggestions) }
@@ -141,71 +148,11 @@ internal class ScreenViewModel(repository: Repository, context: Application) : V
 
     internal class Factory(
         private val application: Application,
-        private val repository: Repository,
+        private val repository: DataRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return ScreenViewModel(repository, application) as T
+            return MainViewModel(repository, application) as T
         }
     }
-}
-
-data class Argument(val value: String, val start: Int, val end: Int) {
-    override fun toString(): String = value
-}
-
-private fun String.isSpaceAt(i: Int): Boolean {
-    return i < length && this[i].isWhitespace()
-}
-
-private fun String.toArguments(): Arguments {
-
-    val arguments = mutableListOf<Argument>()
-    val builder = StringBuilder()
-    var index = 0
-
-    while (index < length) {
-
-        while (isSpaceAt(index)) {
-            index += 1
-        }
-
-        var escape = false
-        var quote = false
-        val start = index
-
-        builder.delete(0, builder.length)
-
-        while (index < length) {
-
-            val c = this[index]
-
-            if (escape) {
-                escape = false
-                builder.append(c)
-                index++
-                continue
-            }
-
-            if (!quote && c.isWhitespace()) {
-                break
-            }
-
-            when (c) {
-                '\\' -> escape = true
-                '"' -> quote = !quote
-                else -> builder.append(c)
-            }
-
-            index += 1
-        }
-
-        if (start >= index) {
-            continue
-        }
-
-        arguments.add(Argument(builder.toString(), start, index))
-    }
-
-    return Arguments(arguments.toList())
 }
