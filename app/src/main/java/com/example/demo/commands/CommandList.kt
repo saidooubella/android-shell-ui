@@ -8,7 +8,7 @@ internal class CommandList private constructor(
 
     internal operator fun get(name: String) = commands[name]
 
-    internal fun names() = commands.keys
+    internal fun names(): Collection<String> = commands.keys
 
     override fun iterator() = commands.values.iterator()
 

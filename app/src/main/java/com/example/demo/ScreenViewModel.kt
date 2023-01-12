@@ -94,7 +94,7 @@ internal class ScreenViewModel(repository: Repository, context: Application) : V
     private suspend fun exec(arguments: Arguments, commands: CommandList) {
         when (arguments.isEmpty()) {
             true -> context.sendAction(Action.Message("Too few arguments"))
-            else -> when (val command = commands[arguments[0].value]) {
+            else -> when (val command = commands[arguments.first().value]) {
                 is Command.Group -> exec(arguments.dropFirst(), command.commands)
                 is Command.Leaf -> arguments.dropFirst().let { leafArgs ->
                     when (command.metadata.validateCount(leafArgs.count())) {
@@ -103,7 +103,7 @@ internal class ScreenViewModel(repository: Repository, context: Application) : V
                         CountCheckResult.ExactArgs -> command.action(context, leafArgs)
                     }
                 }
-                null -> context.sendAction(Action.Message("command not found ${arguments[0].value}"))
+                null -> context.sendAction(Action.Message("command not found ${arguments.first().value}"))
             }
         }
     }
@@ -117,16 +117,26 @@ internal class ScreenViewModel(repository: Repository, context: Application) : V
         state.update { it.copy(exit = false) }
     }
 
+    internal fun markIntentForResultTriggered() {
+        val intentForResult = state.value.intentForResult ?: return
+        state.update { it.copy(intentForResult = intentForResult.triggered()) }
+    }
+
+    internal fun markPermissionsTriggered() {
+        val permissions = state.value.permissions ?: return
+        state.update { it.copy(permissions = permissions.triggered()) }
+    }
+
     internal fun finishIntentForResult() {
         state.update { it.copy(intentForResult = null) }
     }
 
-    internal fun finishIntent() {
-        state.update { it.copy(intent = null) }
-    }
-
     internal fun finishPermissions() {
         state.update { it.copy(permissions = null) }
+    }
+
+    internal fun finishIntent() {
+        state.update { it.copy(intent = null) }
     }
 
     internal class Factory(

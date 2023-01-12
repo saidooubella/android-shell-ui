@@ -1,7 +1,6 @@
 package com.example.demo
 
 import android.Manifest
-import android.R.attr.shell
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
@@ -19,15 +18,16 @@ import android.os.Environment
 import androidx.annotation.RequiresApi
 import androidx.compose.ui.text.capitalize
 import androidx.compose.ui.text.intl.Locale
-import androidx.core.app.ActivityCompat
 import androidx.core.content.getSystemService
+import androidx.core.net.toUri
 import com.example.demo.commands.Command
 import com.example.demo.commands.CommandList
 import com.example.demo.commands.Metadata
 import com.example.demo.db.notes.Note
-import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.FileReader
 import java.io.IOException
-
 
 private val NOTE_COMMAND_GROUP = object : Command.Group("notes") {
 
@@ -112,15 +112,21 @@ private val APP_COMMAND_GROUP = object : Command.Group("apps") {
     }
 
     private val OPEN_OPTION = Leaf(
-        Metadata.Builder("open")
-            .addRequiredArg("name", Suggestions.Applications)
-            .build()
+        Metadata.Builder("open").addRequiredArg("name", Suggestions.Applications).build()
     ) { arguments ->
         val app = lookupApplication(arguments[0].value) ?: return@Leaf
         sendAction(Action.StartIntent(app.launchIntent))
     }
 
+    private val SETTINGS_OPTION = Leaf(
+        Metadata.Builder("st").addRequiredArg("name", Suggestions.Applications).build()
+    ) { arguments ->
+        val app = lookupApplication(arguments[0].value) ?: return@Leaf
+        sendAction(Action.StartIntent(app.settingsIntent))
+    }
+
     override val commands: CommandList = CommandList.Builder()
+        .putCommand(SETTINGS_OPTION)
         .putCommand(REMOVE_OPTION)
         .putCommand(LIST_OPTION)
         .putCommand(OPEN_OPTION)
@@ -159,20 +165,88 @@ private val APP_COMMAND_GROUP = object : Command.Group("apps") {
     }
 }
 
+private val CONTACTS_COMMAND_GROUP = object : Command.Group("contacts") {
+
+    private val LS_OPTION = Leaf(Metadata.Builder("ls").build()) {
+
+        var permissions = arrayOf(Manifest.permission.READ_CONTACTS)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            permissions += Manifest.permission.READ_PHONE_NUMBERS
+        }
+
+        if (permissions.any { appContext.hasNotPermission(it) }) {
+            if (!sendAction(Action.RequestPermissions(permissions))) {
+                sendAction(Action.Message("Can't read contacts"))
+                return@Leaf
+            }
+        }
+
+        repository.loadContacts().forEach { contact ->
+
+            sendAction(Action.Message("${contact.name}: ${contact.phone}") {
+
+                if (appContext.hasNotPermission(Manifest.permission.CALL_PHONE)) {
+                    if (!sendAction(Action.RequestPermissions(arrayOf(Manifest.permission.CALL_PHONE)))) {
+                        sendAction(Action.Message("Can't perform phone calls"))
+                        return@Message
+                    }
+                }
+
+                sendAction(Action.StartIntent(Intent(Intent.ACTION_CALL, "tel:${contact.phone}".toUri())))
+            })
+        }
+    }
+
+    override val commands: CommandList = CommandList.Builder()
+            .putCommand(LS_OPTION)
+            .build()
+}
+
 private val LS_COMMAND = Command.Leaf(Metadata.Builder("ls").build()) {
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        if (!Environment.isExternalStorageManager()) {
+            sendAction(Action.StartIntentForResult(MANAGE_FILES_SETTINGS))
+            if (!Environment.isExternalStorageManager()) {
+                sendAction(Action.Message("Can't read from the external storage"))
+                return@Leaf
+            }
+        }
+    } else {
+        if (!sendAction(Action.RequestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)))) {
+            sendAction(Action.Message("Can't read from the external storage"))
+            return@Leaf
+        }
+    }
+
     repository.loadFiles(workingDir).forEach {
         sendAction(Action.Message(it.name))
     }
 }
 
 private val MAKE_DIR_COMMAND = Command.Leaf(
-    Metadata.Builder("mkdir")
-        .addRequiredArg("name", Suggestions.Empty)
-        .build()
+    Metadata.Builder("mkdir").addRequiredArg("name", Suggestions.Empty).build()
 ) { arguments ->
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        if (!Environment.isExternalStorageManager()) {
+            sendAction(Action.StartIntentForResult(MANAGE_FILES_SETTINGS))
+            if (!Environment.isExternalStorageManager()) {
+                sendAction(Action.Message("Can't write to the external storage"))
+                return@Leaf
+            }
+        }
+    } else {
+        if (!sendAction(Action.RequestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE)))) {
+            sendAction(Action.Message("Can't write to the external storage"))
+            return@Leaf
+        }
+    }
+
     val fileName = arguments[0].value
-    val file = if (fileName.startsWith('/'))
-        File(fileName) else File(workingDir, fileName)
+    val file = normalizePath(fileName)
+
     when {
         file.exists() -> sendAction(Action.Message("$fileName already exists"))
         !file.mkdirs() -> sendAction(Action.Message("failed to create folder"))
@@ -196,11 +270,26 @@ private val PWD_COMMAND = Command.Leaf(Metadata.Builder("pwd").build()) {
 }
 
 private val CD_COMMAND = Command.Leaf(
-    Metadata.Builder("cd")
-        .addRequiredArg("directory", Suggestions.Directories)
-        .build()
+    Metadata.Builder("cd").addRequiredArg("directory", Suggestions.Directories).build()
 ) { arguments ->
-    val file = File(workingDir, arguments[0].value)
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        if (!Environment.isExternalStorageManager()) {
+            sendAction(Action.StartIntentForResult(MANAGE_FILES_SETTINGS))
+            if (!Environment.isExternalStorageManager()) {
+                sendAction(Action.Message("Can't read from the external storage"))
+                return@Leaf
+            }
+        }
+    } else {
+        if (!sendAction(Action.RequestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)))) {
+            sendAction(Action.Message("Can't read from the external storage"))
+            return@Leaf
+        }
+    }
+
+    val file = normalizePath(arguments[0].value)
+
     if (file.exists()) {
         workingDir = file
     } else {
@@ -219,7 +308,10 @@ private val FLASH_COMMAND = Command.Leaf(
             "facing",
             Suggestions.Custom(listOf(Suggestion("front"), Suggestion("back")))
         )
-        .addRequiredArg("state", Suggestions.Custom(listOf(Suggestion("on"), Suggestion("off"))))
+        .addRequiredArg(
+            "state",
+            Suggestions.Custom(listOf(Suggestion("on"), Suggestion("off")))
+        )
         .build()
 ) { arguments ->
 
@@ -280,9 +372,7 @@ private fun Context.hasNotPermission(permission: String): Boolean {
 }
 
 private val TOUCH_COMMAND = Command.Leaf(
-    Metadata.Builder("touch")
-        .addRequiredNArgs("files", Suggestions.Empty)
-        .build()
+    Metadata.Builder("touch").addRequiredNArgs("files", Suggestions.Empty).build()
 ) { arguments ->
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -294,7 +384,7 @@ private val TOUCH_COMMAND = Command.Leaf(
             }
         }
     } else {
-        if (!sendAction(Action.RequestPermissions(arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)))) {
+        if (!sendAction(Action.RequestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE)))) {
             sendAction(Action.Message("Can't write to the external storage"))
             return@Leaf
         }
@@ -317,6 +407,7 @@ private val TOUCH_COMMAND = Command.Leaf(
     }
 }
 
+@Suppress("DEPRECATION")
 @SuppressLint("MissingPermission")
 private val BT_COMMAND = Command.Leaf(Metadata.Builder("bt").build()) {
 
@@ -325,7 +416,16 @@ private val BT_COMMAND = Command.Leaf(Metadata.Builder("bt").build()) {
             || appContext.hasNotPermission(Manifest.permission.BLUETOOTH_CONNECT)
             || appContext.hasNotPermission(Manifest.permission.BLUETOOTH)
         ) {
-            if (!sendAction(Action.RequestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADMIN, Manifest.permission.BLUETOOTH)))) {
+            if (!sendAction(
+                    Action.RequestPermissions(
+                        arrayOf(
+                            Manifest.permission.BLUETOOTH_CONNECT,
+                            Manifest.permission.BLUETOOTH_ADMIN,
+                            Manifest.permission.BLUETOOTH
+                        )
+                    )
+                )
+            ) {
                 sendAction(Action.Message("Bluetooth permission denied"))
                 return@Leaf
             }
@@ -349,7 +449,8 @@ private val BT_COMMAND = Command.Leaf(Metadata.Builder("bt").build()) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
         if (shouldEnable) adapter.enable() else adapter.disable()
     } else if (shouldEnable) {
-        val result = sendAction(Action.StartIntentForResult(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)))
+        val result =
+            sendAction(Action.StartIntentForResult(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)))
         if (result.resultCode != Activity.RESULT_OK) {
             sendAction(Action.Message("Bluetooth wasn't enabled"))
             return@Leaf
@@ -362,21 +463,101 @@ private val BT_COMMAND = Command.Leaf(Metadata.Builder("bt").build()) {
     sendAction(Action.Message("Bluetooth is " + if (shouldEnable) "enabled" else "disabled"))
 }
 
+private val READ_COMMAND = Command.Leaf(
+    Metadata.Builder("read").addRequiredArg("file", Suggestions.Files).build()
+) { arguments ->
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        if (!Environment.isExternalStorageManager()) {
+            sendAction(Action.StartIntentForResult(MANAGE_FILES_SETTINGS))
+            if (!Environment.isExternalStorageManager()) {
+                sendAction(Action.Message("Can't read from the external storage"))
+                return@Leaf
+            }
+        }
+    } else {
+        if (!sendAction(Action.RequestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)))) {
+            sendAction(Action.Message("Can't read from the external storage"))
+            return@Leaf
+        }
+    }
+
+    val fileName = arguments[0].value
+
+    val file = normalizePath(fileName).takeIf { it.exists() } ?: run {
+        sendAction(Action.Message("$fileName is not found"))
+        return@Leaf
+    }
+
+    withContext(Dispatchers.IO) {
+        FileReader(file).buffered().use { reader ->
+            val line = MutableBox("")
+            while (line.set(reader.readLine())) {
+                sendAction(Action.Message(line.get()))
+            }
+        }
+    }
+}
+
+private class MutableBox<T : Any>(
+    private var value: T,
+) {
+
+    fun set(value: T?): Boolean {
+        if (value != null) {
+            this.value = value
+            return true
+        }
+        return false
+    }
+
+    fun get(): T = value
+}
+
+private val RM_COMMAND = Command.Leaf(
+    Metadata.Builder("rm").addRequiredNArgs("files", Suggestions.Files).build()
+) { arguments ->
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        if (!Environment.isExternalStorageManager()) {
+            sendAction(Action.StartIntentForResult(MANAGE_FILES_SETTINGS))
+            if (!Environment.isExternalStorageManager()) {
+                sendAction(Action.Message("Can't write to the external storage"))
+                return@Leaf
+            }
+        }
+    } else {
+        if (!sendAction(Action.RequestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE)))) {
+            sendAction(Action.Message("Can't write to the external storage"))
+            return@Leaf
+        }
+    }
+
+    arguments.forEach {
+        if (!normalizePath(it.value).deleteRecursively()) {
+            sendAction(Action.Message("Can't delete ${it.value}"))
+        }
+    }
+}
+
 internal val COMMANDS = CommandList.Builder()
-    .putCommand(ECHO_COMMAND)
-    .putCommand(CLEAR_COMMAND)
+    .putCommand(CONTACTS_COMMAND_GROUP)
+    .putCommand(NOTE_COMMAND_GROUP)
     .putCommand(APP_COMMAND_GROUP)
+    .putCommand(MAKE_DIR_COMMAND)
+    .putCommand(CLEAR_COMMAND)
+    .putCommand(TOUCH_COMMAND)
+    .putCommand(ECHO_COMMAND)
+    .putCommand(READ_COMMAND)
+    .putCommand(EXIT_COMMAND)
     .putCommand(PWD_COMMAND)
     .putCommand(LS_COMMAND)
-    .putCommand(MAKE_DIR_COMMAND)
-    .putCommand(TOUCH_COMMAND)
+    .putCommand(RM_COMMAND)
+    .putCommand(CD_COMMAND)
+    .putCommand(BT_COMMAND)
     .apply {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             putCommand(FLASH_COMMAND)
         }
     }
-    .putCommand(CD_COMMAND)
-    .putCommand(EXIT_COMMAND)
-    .putCommand(NOTE_COMMAND_GROUP)
-    .putCommand(BT_COMMAND)
     .build()

@@ -2,7 +2,6 @@
     ExperimentalMaterial3Api::class,
     ExperimentalComposeUiApi::class,
     ExperimentalLayoutApi::class,
-    ExperimentalLifecycleComposeApi::class,
 )
 
 package com.example.demo
@@ -46,7 +45,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -57,14 +55,11 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
-import androidx.lifecycle.compose.ExperimentalLifecycleComposeApi
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.demo.db.AppDatabase
 import com.example.demo.ui.theme.DemoTheme
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 internal val MANAGE_FILES_SETTINGS: Intent
     @RequiresApi(Build.VERSION_CODES.R)
@@ -86,7 +81,7 @@ class MainActivity : ComponentActivity() {
 
         val viewModel by viewModels<ScreenViewModel> {
             ScreenViewModel.Factory(
-                application, Repository(packageManager, AppDatabase.get(application))
+                application, Repository(packageManager, AppDatabase.get(application), contentResolver)
             )
         }
 
@@ -124,12 +119,14 @@ class MainActivity : ComponentActivity() {
                     viewModel.finishIntent()
                 }
 
-                if (screenState.intentForResult != null) {
+                if (screenState.intentForResult != null && !screenState.intentForResult.triggered) {
                     intentResult.launch(screenState.intentForResult.intent)
+                    viewModel.markIntentForResultTriggered()
                 }
 
-                if (screenState.permissions != null) {
+                if (screenState.permissions != null && !screenState.permissions.triggered) {
                     permissions.launch(screenState.permissions.permissions)
+                    viewModel.markPermissionsTriggered()
                 }
 
                 Screen(

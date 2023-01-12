@@ -28,20 +28,21 @@ internal class SuggestionsGenerator(private val shell: ShellContext) {
         lineLength: Int,
     ): SuggestionsResult = withContext(Dispatchers.Default) {
         if (args.isEmpty()) {
-            return@withContext SuggestionsResult(Suggestions.Commands.supply(shell, ""), MergeAction.Append)
-        }
-        val first: Argument = args[0]
-        val parent: Command? = shell.commands[first.value]
-        if (parent == null || first.end == lineLength) {
-            return@withContext when (args.count() > 1 || first.end != lineLength) {
-                true -> SuggestionsResult.EMPTY
-                else -> SuggestionsResult(
-                    filterSuggestions(shell.commands.names(), first.value),
+            SuggestionsResult(Suggestions.Commands.supply(shell, ""), MergeAction.Append)
+        } else {
+            val first = args.first()
+            val parent = shell.commands[first.value]
+            if (first.end == lineLength) {
+                SuggestionsResult(
+                    shell.commands.names().toSuggestions(first.value),
                     MergeAction.Replace(first.start, first.end)
                 )
+            } else if (parent == null) {
+                SuggestionsResult.EMPTY
+            } else {
+                proceedCommand(args.dropFirst(), parent, lineLength)
             }
         }
-        return@withContext proceedCommand(args, parent, lineLength)
     }
 
     private suspend fun proceedCommand(
@@ -49,28 +50,40 @@ internal class SuggestionsGenerator(private val shell: ShellContext) {
         command: Command,
         lineLength: Int,
     ): SuggestionsResult {
+
+        var current: Command = command
         var arguments: Arguments = args
-        var current: Command? = command
+
         while (true) {
-            arguments = arguments.dropFirst()
+
+            if (current is Command.Leaf) {
+                return handleLeafCommand(current, arguments, lineLength)
+            }
+
             if (current is Command.Group) {
-                val set = current
-                if (arguments.isEmpty()) {
-                    return SuggestionsResult(filterSuggestions(set.commands.names(), ""), MergeAction.Append)
+
+                val option = if (arguments.isEmpty()) {
+                    return SuggestionsResult(
+                        current.commands.names().toSuggestions(""),
+                        MergeAction.Append
+                    )
+                } else {
+                    arguments.first()
                 }
-                val optionArg: Argument = arguments[0]
-                current = set.commands[optionArg.value]
-                if (current == null || optionArg.end == lineLength) {
-                    if (arguments.count() > 1 || optionArg.end != lineLength) {
-                        return SuggestionsResult.EMPTY
-                    }
-                    return SuggestionsResult(filterSuggestions(set.commands.names(),
-                        optionArg.value), MergeAction.Replace(optionArg.start, optionArg.end))
+
+                val next = current.commands[option.value]
+
+                if (option.end == lineLength) {
+                    return SuggestionsResult(
+                        current.commands.names().toSuggestions(option.value),
+                        MergeAction.Replace(option.start, option.end)
+                    )
+                } else if (next == null) {
+                    return SuggestionsResult.EMPTY
                 }
-            } else return if (current is Command.Leaf) {
-                handleLeafCommand(current, arguments, lineLength)
-            } else {
-                throw IllegalStateException()
+
+                arguments = arguments.dropFirst()
+                current = next
             }
         }
     }
@@ -80,35 +93,47 @@ internal class SuggestionsGenerator(private val shell: ShellContext) {
         args: Arguments,
         lineLength: Int,
     ): SuggestionsResult {
+
         if (args.isEmpty()) {
-            if (command.metadata.params.isEmpty()) {
-                return SuggestionsResult.EMPTY
+            return when (command.metadata.params.isNotEmpty()) {
+                true -> {
+                    val suggestions = command.metadata.params.first().suggestions
+                    SuggestionsResult(suggestions.supply(shell, ""), MergeAction.Append)
+                }
+                else -> SuggestionsResult.EMPTY
             }
-            return SuggestionsResult(command.metadata.params[0].suggestions.supply(shell, ""), MergeAction.Append)
         }
+
         if (command.metadata.validateCount(args.count()) == CountCheckResult.TooManyArgs) {
             return SuggestionsResult.EMPTY
         }
-        val lastArg: Argument = args[args.count() - 1]
-        val hint = if (lastArg.end == lineLength) lastArg.value else ""
-        val target = if (lastArg.end == lineLength) args.count() - 1 else args.count()
-        var argsInfo: List<Parameter> = command.metadata.params
-        var i = 0
-        while (i < target && argsInfo.isNotEmpty()) {
-            if (!argsInfo[0].variadic) {
-                argsInfo = argsInfo.subList(1, argsInfo.size)
-            }
-            i++
-        }
-        val mergeAction: MergeAction = if (lastArg.end == lineLength)
-            MergeAction.Replace(lastArg.start, lastArg.end) else MergeAction.Append
-        if (argsInfo.isEmpty()) {
-            return SuggestionsResult.EMPTY
-        }
-        return SuggestionsResult(argsInfo[0].suggestions.supply(shell, hint), mergeAction)
-    }
 
-    private fun filterSuggestions(names: Collection<String>, query: String): List<Suggestion> {
-        return names.filter { it.indexOf(query) != -1 }.map { Suggestion(it) }
+        val last: Argument = args.last()
+        val (hint, limit) = when (last.end == lineLength) {
+            true -> last.value to args.count() - 1
+            else -> "" to args.count()
+        }
+
+        val argsInfo: List<Parameter> = command.metadata.params
+            .dropWhileIndexed { index, param -> index < limit && !param.variadic }
+
+        return when (argsInfo.isNotEmpty()) {
+            true -> {
+                val mergeAction: MergeAction = when (last.end == lineLength) {
+                    true -> MergeAction.Replace(last.start, last.end)
+                    else -> MergeAction.Append
+                }
+                SuggestionsResult(argsInfo[0].suggestions.supply(shell, hint), mergeAction)
+            }
+            else -> SuggestionsResult.EMPTY
+        }
     }
+}
+
+private fun Collection<String>.toSuggestions(query: String): List<Suggestion> =
+    filter { it.indexOf(query) != -1 }.map { Suggestion(it) }
+
+private inline fun <T> Collection<T>.dropWhileIndexed(block: (Int, T) -> Boolean): List<T> {
+    var index = 0
+    return dropWhile { block(index++, it) }
 }

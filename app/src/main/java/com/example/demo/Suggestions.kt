@@ -32,29 +32,42 @@ internal interface Suggestions {
         }
     }
 
+    object Files : Suggestions {
+        override suspend fun supply(context: ShellContext, hint: String): List<Suggestion> {
+            return loadFiles(hint, context, false)
+        }
+    }
+
     object Directories : Suggestions {
         override suspend fun supply(context: ShellContext, hint: String): List<Suggestion> {
+            return loadFiles(hint, context, true)
+        }
+    }
+}
 
-            val index = hint.lastIndexOf(File.separator)
-            val root = context.normalizePath(hint) {
-                if (index != -1) hint.substring(0, index + 1) else ""
-            }
+private suspend fun loadFiles(
+    hint: String,
+    context: ShellContext,
+    dirsOnly: Boolean
+): List<Suggestion> {
+    val index = hint.lastIndexOf(File.separator)
+    val root = context.normalizePath(hint) {
+        if (index != -1) hint.substring(0, index + 1) else ""
+    }
 
-            val query = if (index != -1) hint.substring(index + 1) else hint
-            val specialPaths = buildList(3) {
-                if (!hint.endsWith(File.separator))
-                    add(Suggestion("/", "$hint/"))
-                add(Suggestion(".", "$hint./"))
-                add(Suggestion("..", "$hint../"))
-            }
+    val query = if (index != -1) hint.substring(index + 1) else hint
+    val specialPaths = buildList(3) {
+        if (!hint.endsWith(File.separator))
+            add(Suggestion("/", "$hint/"))
+        add(Suggestion(".", "$hint./"))
+        add(Suggestion("..", "$hint../"))
+    }
 
-            return when (!root.exists()) {
-                true -> emptyList()
-                else -> withContext(Dispatchers.Default) {
-                    specialPaths + context.repository.loadFiles(root, query).map {
-                        Suggestion(it.name, context.removeWorkingDir(it.path) + File.separator)
-                    }
-                }
+    return when (!root.exists()) {
+        true -> emptyList()
+        else -> withContext(Dispatchers.Default) {
+            specialPaths + context.repository.loadFiles(root, query, dirsOnly).map {
+                Suggestion(it.name, context.removeWorkingDir(it.path) + File.separator)
             }
         }
     }
