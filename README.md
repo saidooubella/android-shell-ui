@@ -1,6 +1,6 @@
 # Shell-UI (work-in-progress 👷🔧️👷‍♀️⛏)
 
-This is a **work in progress** app inspired by the [t-ui launcher](https://github.com/fAndreuzzi/TUI-ConsoleLauncher) app. I built this app to follow it's successor "t-ui" and provide more minimalistic and clean home screen ui with more of what I think important features.
+This is a **work in progress** app inspired by the [t-ui launcher](https://github.com/fAndreuzzi/TUI-ConsoleLauncher) app. I built this app to follow it's predecessor "t-ui" and provide more minimalistic and clean home screen ui with more of what I think important features.
 
 ## Android Development
 
