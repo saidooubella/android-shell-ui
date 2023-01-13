@@ -12,6 +12,7 @@ import com.example.demo.commands.Command
 import com.example.demo.commands.CommandList
 import com.example.demo.commands.CountCheckResult
 import com.example.demo.data.DataRepository
+import com.example.demo.managers.FlashManager
 import com.example.demo.models.parseArguments
 import com.example.demo.shell.Action
 import com.example.demo.shell.ShellContext
@@ -27,7 +28,7 @@ internal class MainViewModel(repository: DataRepository, context: Application) :
 
     private val state = MutableStateFlow(ScreenState())
 
-    private val context = object : ShellContext(context, repository, COMMANDS) {
+    private val context = object : ShellContext(context, repository) {
         override suspend fun <R> sendAction(action: Action<R>) = action.execute(state)
     }
 
@@ -61,7 +62,7 @@ internal class MainViewModel(repository: DataRepository, context: Application) :
                     state.update { it.copy(isIdle = false) }
                     try {
                         context.sendAction(Action.Message(">> $content"))
-                        exec(content.parseArguments(), COMMANDS)
+                        exec(content.parseArguments(), Commands)
                     } finally {
                         state.update { it.copy(isIdle = true) }
                     }
@@ -116,6 +117,7 @@ internal class MainViewModel(repository: DataRepository, context: Application) :
     }
 
     override fun onCleared() {
+        context.onCleared()
         suggestionsJob?.cancel()
         execJob?.cancel()
     }

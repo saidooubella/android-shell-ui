@@ -2,14 +2,18 @@ package com.example.demo.shell
 
 import android.app.Application
 import android.os.Environment
+import com.example.demo.commands.Command
 import com.example.demo.commands.CommandList
+import com.example.demo.commands.Commands
+import com.example.demo.managers.FlashManager
 import com.example.demo.data.DataRepository
 import java.io.File
 
 internal abstract class ShellContext(
     val appContext: Application,
     val repository: DataRepository,
-    val commands: CommandList,
+    val commands: CommandList = Commands,
+    val flashManager: FlashManager = FlashManager.of(appContext),
 ) {
 
     internal var workingDir: File = Environment.getExternalStorageDirectory()
@@ -26,5 +30,9 @@ internal abstract class ShellContext(
             false -> File(workingDir, transformer(path))
             else -> File(transformer(path))
         }
+    }
+
+    internal fun onCleared() {
+        flashManager.onCleared()
     }
 }

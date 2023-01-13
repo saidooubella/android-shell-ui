@@ -10,23 +10,20 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraCharacteristics.LENS_FACING
-import android.hardware.camera2.CameraManager
 import android.os.Build
 import android.os.Environment
-import androidx.annotation.RequiresApi
 import androidx.compose.ui.text.capitalize
 import androidx.compose.ui.text.intl.Locale
 import androidx.core.content.getSystemService
 import androidx.core.net.toUri
 import com.example.demo.MANAGE_FILES_SETTINGS
-import com.example.demo.shell.ShellContext
+import com.example.demo.managers.FlashManager.Result
 import com.example.demo.data.notes.Note
 import com.example.demo.models.LauncherApp
 import com.example.demo.models.settingsIntent
 import com.example.demo.models.uninstallIntent
 import com.example.demo.shell.Action
+import com.example.demo.shell.ShellContext
 import com.example.demo.suggestions.Suggestion
 import com.example.demo.suggestions.Suggestions
 import kotlinx.coroutines.Dispatchers
@@ -306,17 +303,10 @@ private val EXIT_COMMAND = Command.Leaf(Metadata.Builder("exit").build()) {
     sendAction(Action.Exit)
 }
 
-@RequiresApi(Build.VERSION_CODES.M)
 private val FLASH_COMMAND = Command.Leaf(
     Metadata.Builder("flash")
-        .addRequiredArg(
-            "facing",
-            Suggestions.Custom(listOf(Suggestion("front"), Suggestion("back")))
-        )
-        .addRequiredArg(
-            "state",
-            Suggestions.Custom(listOf(Suggestion("on"), Suggestion("off")))
-        )
+        .addRequiredArg("facing", Suggestions.Custom(listOf(Suggestion("front"), Suggestion("back"))))
+        .addRequiredArg("state", Suggestions.Custom(listOf(Suggestion("on"), Suggestion("off"))))
         .build()
 ) { arguments ->
 
@@ -330,50 +320,22 @@ private val FLASH_COMMAND = Command.Leaf(
         return@Leaf
     }
 
-    val manager = appContext.getSystemService<CameraManager>() ?: run {
-        sendAction(Action.Message("Camera isn't supported on this device"))
-        return@Leaf
-    }
-
-    val cameraId = manager.cameraIdList.find { manager.isWhatCamera(facing, it) } ?: run {
-        sendAction(Action.Message("The $facing camera isn't available"))
-        return@Leaf
-    }
-
-    if (!manager.hasFlash(cameraId)) {
-        sendAction(Action.Message("${facing.capitalize(Locale.current)} camera doesn't have a flash unit"))
-        return@Leaf
-    }
-
-    manager.setTorchMode(cameraId, state == "on")
-}
-
-private fun CameraManager.hasFlash(cameraId: String): Boolean {
-    return try {
-        getCameraCharacteristics(cameraId)[CameraCharacteristics.FLASH_INFO_AVAILABLE] == true
-    } catch (e: IllegalArgumentException) {
-        false
-    }
-}
-
-private fun CameraManager.isWhatCamera(facing: String, cameraId: String): Boolean {
-    return try {
-        getCameraCharacteristics(cameraId)[LENS_FACING] == when (facing) {
-            "front" -> CameraCharacteristics.LENS_FACING_FRONT
-            "back" -> CameraCharacteristics.LENS_FACING_BACK
-            else -> error("Invalid facing mode '$facing'")
+    if (flashManager.NeedsPermission && appContext.hasNotPermission(Manifest.permission.CAMERA)) {
+        if (!sendAction(Action.RequestPermissions(arrayOf(Manifest.permission.CAMERA)))) {
+            sendAction(Action.Message("Can't have access to the camera"))
+            return@Leaf
         }
-    } catch (e: IllegalArgumentException) {
-        false
     }
-}
 
-private fun Context.hasNotPermission(permission: String): Boolean {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        checkSelfPermission(permission) == PackageManager.PERMISSION_DENIED
-    } else {
-        false
+    val facingMode = if (facing == "front") flashManager.FacingFront else flashManager.FacingBack
+
+    val message = when (flashManager.setTorchMode(facingMode, state == "on")) {
+        Result.CameraNotFound -> "The $facing camera isn't available"
+        Result.FlashNotFound -> "${facing.capitalize(Locale.current)} camera doesn't have a flash unit"
+        Result.Success -> "Flash is $state"
     }
+
+    sendAction(Action.Message(message))
 }
 
 private val TOUCH_COMMAND = Command.Leaf(
@@ -496,27 +458,12 @@ private val READ_COMMAND = Command.Leaf(
 
     withContext(Dispatchers.IO) {
         FileReader(file).buffered().use { reader ->
-            val line = MutableBox("")
-            while (line.set(reader.readLine())) {
-                sendAction(Action.Message(line.get()))
+            while (true) {
+                val line = reader.readLine() ?: break
+                sendAction(Action.Message(line))
             }
         }
     }
-}
-
-private class MutableBox<T : Any>(
-    private var value: T,
-) {
-
-    fun set(value: T?): Boolean {
-        if (value != null) {
-            this.value = value
-            return true
-        }
-        return false
-    }
-
-    fun get(): T = value
 }
 
 private val RM_COMMAND = Command.Leaf(
@@ -545,24 +492,28 @@ private val RM_COMMAND = Command.Leaf(
     }
 }
 
-internal val COMMANDS = CommandList.Builder()
+private fun Context.hasNotPermission(permission: String): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        checkSelfPermission(permission) == PackageManager.PERMISSION_DENIED
+    } else {
+        false
+    }
+}
+
+internal val Commands = CommandList.Builder()
     .putCommand(CONTACTS_COMMAND_GROUP)
     .putCommand(NOTE_COMMAND_GROUP)
     .putCommand(APP_COMMAND_GROUP)
     .putCommand(MAKE_DIR_COMMAND)
     .putCommand(CLEAR_COMMAND)
+    .putCommand(FLASH_COMMAND)
     .putCommand(TOUCH_COMMAND)
     .putCommand(ECHO_COMMAND)
-    .putCommand(READ_COMMAND)
     .putCommand(EXIT_COMMAND)
+    .putCommand(READ_COMMAND)
     .putCommand(PWD_COMMAND)
     .putCommand(LS_COMMAND)
     .putCommand(RM_COMMAND)
     .putCommand(CD_COMMAND)
     .putCommand(BT_COMMAND)
-    .apply {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            putCommand(FLASH_COMMAND)
-        }
-    }
     .build()
