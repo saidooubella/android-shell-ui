@@ -23,7 +23,9 @@ internal interface Suggestions {
 
     object Commands : Suggestions {
         override suspend fun load(context: ShellContext, hint: String): List<Suggestion> {
-            return context.commands.map { Suggestion(it.name) }
+            return context.commands.names()
+                .filter { it.contains(hint, ignoreCase = true) }
+                .map { Suggestion(it) }
         }
     }
 

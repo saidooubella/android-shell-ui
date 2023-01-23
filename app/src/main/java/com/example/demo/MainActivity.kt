@@ -232,8 +232,10 @@ private fun ShellSuggestionsBox(
     onSubmit: () -> Unit,
 ) {
     val pinned by pinnedSuggestions.collectAsStateWithLifecycle(listOf())
+    val suggestions = state.suggestions.suggestions
+    val promptText = state.fieldText.text
     AnimatedVisibility(
-        visible = state.isIdle && (state.suggestions.suggestions.isNotEmpty() || pinned.isNotEmpty()),
+        visible = state.isIdle && (suggestions.isNotEmpty() || (promptText.isEmpty() && pinned.isNotEmpty())),
     ) {
         LazyRow(
             modifier = Modifier
@@ -243,13 +245,13 @@ private fun ShellSuggestionsBox(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (state.fieldText.text.isEmpty() && pinned.isNotEmpty()) {
+            if (promptText.isEmpty() && pinned.isNotEmpty()) {
                 items(pinned) { suggestion ->
                     SuggestionItem(state, suggestion, onFieldTextChange, onSubmit)
                 }
                 item { Text("●") }
             }
-            items(state.suggestions.suggestions) { suggestion ->
+            items(suggestions) { suggestion ->
                 SuggestionItem(state, suggestion, onFieldTextChange, onSubmit)
             }
         }
