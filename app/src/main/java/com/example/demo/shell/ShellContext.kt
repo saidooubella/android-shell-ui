@@ -2,11 +2,10 @@ package com.example.demo.shell
 
 import android.app.Application
 import android.os.Environment
-import com.example.demo.commands.Command
 import com.example.demo.commands.CommandList
 import com.example.demo.commands.Commands
-import com.example.demo.managers.FlashManager
 import com.example.demo.data.DataRepository
+import com.example.demo.managers.FlashManager
 import java.io.File
 
 internal abstract class ShellContext(

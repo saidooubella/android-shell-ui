@@ -7,17 +7,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.demo.commands.*
-import com.example.demo.commands.Arguments
-import com.example.demo.commands.Command
-import com.example.demo.commands.CommandList
-import com.example.demo.commands.CountCheckResult
 import com.example.demo.data.DataRepository
-import com.example.demo.managers.FlashManager
 import com.example.demo.models.parseArguments
 import com.example.demo.shell.Action
 import com.example.demo.shell.ShellContext
-import com.example.demo.suggestions.SuggestionsGenerator
-import com.example.demo.suggestions.SuggestionsResult
+import com.example.demo.suggestions.*
+import com.example.demo.utils.OpenableApp
+import com.example.demo.utils.catch
+import com.example.demo.utils.loadFromPackage
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -29,10 +26,25 @@ internal class MainViewModel(repository: DataRepository, context: Application) :
     private val state = MutableStateFlow(ScreenState())
 
     private val context = object : ShellContext(context, repository) {
-        override suspend fun <R> sendAction(action: Action<R>) = action.execute(state)
+
+        private val stateUpdate = state::update
+
+        override suspend fun <R> sendAction(action: Action<R>): R {
+            return action.execute(stateUpdate)
+        }
     }
 
     val screenState = state.asStateFlow()
+
+    val pinned = repository.getPinnedApps().map { list ->
+        list.mapNotNull { app ->
+            catch {
+                val manager = context.packageManager
+                val label = manager.loadFromPackage(app).loadLabel(manager).toString()
+                OpenableApp(label, app.packageName)
+            }
+        }
+    }
 
     init {
         viewModelScope.launch {
@@ -89,8 +101,7 @@ internal class MainViewModel(repository: DataRepository, context: Application) :
 
         suggestionsJob = viewModelScope.launch {
             val arguments = state.value.fieldText.text.parseArguments()
-            val suggestions = SuggestionsGenerator(context)
-                .suggestions(arguments, state.value.fieldText.text.length)
+            val suggestions = context.loadSuggestions(arguments, state.value.fieldText.text.length)
             state.update { it.copy(suggestions = suggestions) }
         }
     }

@@ -17,6 +17,7 @@ internal class CommandList private constructor(
         private val commands = TreeMap<String, Command>()
 
         internal fun putCommand(command: Command): Builder {
+            require(command.name !in commands)
             commands[command.name] = command
             return this
         }

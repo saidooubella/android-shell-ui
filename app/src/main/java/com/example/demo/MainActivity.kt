@@ -6,21 +6,13 @@
 
 package com.example.demo
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.annotation.RequiresApi
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.*
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,10 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.outlined.LightMode
-import androidx.compose.material.icons.outlined.Send
-import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -54,19 +43,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.demo.data.ShellDatabase
 import com.example.demo.data.DataRepository
+import com.example.demo.data.ShellDatabase
 import com.example.demo.suggestions.MergeAction
+import com.example.demo.suggestions.Suggestion
 import com.example.demo.ui.theme.DemoTheme
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
-
-internal val MANAGE_FILES_SETTINGS: Intent
-    @RequiresApi(Build.VERSION_CODES.R)
-    get() = Intent(
-        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-        Uri.parse("package:" + BuildConfig.APPLICATION_ID)
-    )
 
 class MainActivity : ComponentActivity() {
 
@@ -77,7 +61,8 @@ class MainActivity : ComponentActivity() {
 
         val viewModel by viewModels<MainViewModel> {
             MainViewModel.Factory(
-                application, DataRepository(packageManager, ShellDatabase.get(application), contentResolver)
+                application,
+                DataRepository(packageManager, ShellDatabase.get(application), contentResolver)
             )
         }
 
@@ -127,6 +112,7 @@ class MainActivity : ComponentActivity() {
 
                 Screen(
                     onFieldTextChange = viewModel::changeFieldText,
+                    pinnedSuggestions = viewModel.pinned,
                     onThemeChange = viewModel::toggleTheme,
                     onSubmit = viewModel::submitLine,
                     state = screenState
@@ -139,6 +125,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun Screen(
     state: ScreenState,
+    pinnedSuggestions: Flow<List<Suggestion>>,
     onFieldTextChange: (TextFieldValue) -> Unit,
     onThemeChange: () -> Unit,
     onSubmit: () -> Unit,
@@ -146,7 +133,7 @@ private fun Screen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = { ShellTopBar(onThemeChange, state) },
-        bottomBar = { ShellBottomBar(onSubmit, state, onFieldTextChange) }
+        bottomBar = { ShellBottomBar(state, pinnedSuggestions, onFieldTextChange, onSubmit) }
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -166,9 +153,10 @@ private fun Screen(
 
 @Composable
 private fun ShellBottomBar(
-    onSubmit: () -> Unit,
     state: ScreenState,
+    pinnedSuggestions: Flow<List<Suggestion>>,
     onFieldTextChange: (TextFieldValue) -> Unit,
+    onSubmit: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -187,7 +175,7 @@ private fun ShellBottomBar(
                     .fillMaxWidth()
             )
         }
-        ShellSuggestionsBox(state, onFieldTextChange)
+        ShellSuggestionsBox(state, pinnedSuggestions, onFieldTextChange, onSubmit)
     }
 }
 
@@ -239,10 +227,13 @@ private fun ShellLogsList(
 @Composable
 private fun ShellSuggestionsBox(
     state: ScreenState,
+    pinnedSuggestions: Flow<List<Suggestion>>,
     onFieldTextChange: (TextFieldValue) -> Unit,
+    onSubmit: () -> Unit,
 ) {
+    val pinned by pinnedSuggestions.collectAsStateWithLifecycle(listOf())
     AnimatedVisibility(
-        visible = state.isIdle && state.suggestions.suggestions.isNotEmpty(),
+        visible = state.isIdle && (state.suggestions.suggestions.isNotEmpty() || pinned.isNotEmpty()),
     ) {
         LazyRow(
             modifier = Modifier
@@ -252,33 +243,52 @@ private fun ShellSuggestionsBox(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (state.fieldText.text.isEmpty() && pinned.isNotEmpty()) {
+                items(pinned) { suggestion ->
+                    SuggestionItem(state, suggestion, onFieldTextChange, onSubmit)
+                }
+                item { Text("●") }
+            }
             items(state.suggestions.suggestions) { suggestion ->
-                SuggestionChip(
-                    onClick = {
-                        val text = when (val action = state.suggestions.mergeAction) {
-                            is MergeAction.Append -> {
-                                if (state.fieldText.text.isNotEmpty())
-                                    buildString {
-                                        append(state.fieldText.text)
-                                        if (!state.fieldText.text.last().isWhitespace())
-                                            append(' ')
-                                        append(suggestion.replacement)
-                                    }
-                                else suggestion.replacement
-                            }
-                            is MergeAction.Replace -> {
-                                StringBuilder(state.fieldText.text)
-                                    .replace(action.start, action.end, suggestion.replacement)
-                                    .toString()
-                            }
-                        }
-                        onFieldTextChange(TextFieldValue(text, TextRange(text.length, text.length)))
-                    },
-                    label = { Text(suggestion.label, fontSize = 16.sp) }
-                )
+                SuggestionItem(state, suggestion, onFieldTextChange, onSubmit)
             }
         }
     }
+}
+
+@Composable
+private fun SuggestionItem(
+    state: ScreenState,
+    suggestion: Suggestion,
+    onFieldTextChange: (TextFieldValue) -> Unit,
+    onSubmit: () -> Unit
+) {
+    SuggestionChip(
+        onClick = {
+            val text = when (val action = state.suggestions.mergeAction) {
+                is MergeAction.Append -> {
+                    if (state.fieldText.text.isNotEmpty()) {
+                        buildString {
+                            append(state.fieldText.text)
+                            if (!state.fieldText.text.last().isWhitespace())
+                                append(' ')
+                            append(suggestion.replacement)
+                        }
+                    } else suggestion.replacement
+                }
+                is MergeAction.Replace -> {
+                    StringBuilder(state.fieldText.text)
+                        .replace(action.start, action.end, suggestion.replacement)
+                        .toString()
+                }
+            }
+            onFieldTextChange(TextFieldValue(text, TextRange(text.length, text.length)))
+            if (suggestion.runnable) {
+                onSubmit()
+            }
+        },
+        label = { Text(suggestion.label, fontSize = 16.sp) }
+    )
 }
 
 @Composable

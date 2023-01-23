@@ -67,8 +67,7 @@ internal abstract class FlashManager(
             }
 
             camera?.applyParameters {
-                flashMode =
-                    if (enabled) Camera.Parameters.FLASH_MODE_TORCH else Camera.Parameters.FLASH_MODE_OFF
+                flashMode = if (enabled) Camera.Parameters.FLASH_MODE_TORCH else Camera.Parameters.FLASH_MODE_OFF
             }
 
             return Result.Success

@@ -8,17 +8,17 @@ import androidx.room.Query
 internal interface NoteDao {
 
     @Insert
-    suspend fun insertNote(note: Note)
+    suspend fun insert(note: Note)
 
     @Query("SELECT * FROM notes")
-    suspend fun notesList(): List<Note>
+    suspend fun list(): List<Note>
 
     @Query("SELECT * FROM notes ORDER BY id LIMIT 1 OFFSET :index")
-    suspend fun getNote(index: Long): Note?
+    suspend fun get(index: Long): Note?
 
     @Query("DELETE FROM notes WHERE id IN ( SELECT id FROM notes ORDER BY id LIMIT 1 OFFSET :index )")
-    suspend fun removeNote(index: Long): Int
+    suspend fun remove(index: Long): Int
 
     @Query("DELETE FROM notes")
-    suspend fun clearNotes()
+    suspend fun clear()
 }

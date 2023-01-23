@@ -1,6 +1,6 @@
 package com.example.demo.suggestions
 
-internal class SuggestionsResult(
+internal data class SuggestionsResult(
     internal val suggestions: List<Suggestion>,
     internal val mergeAction: MergeAction,
 ) {

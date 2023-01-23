@@ -8,9 +8,13 @@ import android.os.Build
 import android.provider.ContactsContract.CommonDataKinds.Phone.*
 import androidx.room.*
 import com.example.demo.data.notes.Note
-import com.example.demo.models.LauncherApp
+import com.example.demo.data.pinned.PinnedApp
+import com.example.demo.data.rss.RssFeed
 import com.example.demo.models.Contact
+import com.example.demo.models.LauncherApp
+import com.example.demo.utils.catch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -46,7 +50,7 @@ internal class DataRepository(
     }
 
     suspend fun loadContacts(query: String = ""): List<Contact> {
-        try {
+        return catch {
             resolver.query(
                 CONTENT_URI, PROJECTION, SELECTION, arrayOf("%$query%"), SORT_ORDER
             )?.use { cursor ->
@@ -62,31 +66,61 @@ internal class DataRepository(
                     contactsList.add(Contact(name, phone))
                 }
 
-                return contactsList
+                contactsList
             }
-        } catch (_: Exception) {
-        }
-        return emptyList()
+        } ?: emptyList()
     }
 
     suspend fun addNote(note: Note) {
-        appDatabase.noteDao.insertNote(note)
+        appDatabase.noteDao.insert(note)
     }
 
     suspend fun notesList(): List<Note> {
-        return appDatabase.noteDao.notesList()
+        return appDatabase.noteDao.list()
     }
 
     suspend fun getNote(index: Long): Note? {
-        return appDatabase.noteDao.getNote(index)
+        return appDatabase.noteDao.get(index)
     }
 
     suspend fun removeNote(index: Long): Int {
-        return appDatabase.noteDao.removeNote(index)
+        return appDatabase.noteDao.remove(index)
     }
 
     suspend fun clearNotes() {
-        appDatabase.noteDao.clearNotes()
+        appDatabase.noteDao.clear()
+    }
+
+    suspend fun pinApp(appPackage: String) {
+        appDatabase.pinnedAppsDao.insert(PinnedApp(packageName = appPackage))
+    }
+
+    suspend fun unpinApp(appPackage: String): Boolean {
+        return appDatabase.pinnedAppsDao.remove(appPackage) > 0
+    }
+
+    fun getPinnedApps(): Flow<List<PinnedApp>> {
+        return appDatabase.pinnedAppsDao.get()
+    }
+
+    suspend fun getPinnedAppsList(): List<PinnedApp> {
+        return appDatabase.pinnedAppsDao.getList()
+    }
+
+    suspend fun insertFeed(feed: RssFeed): Boolean {
+        return appDatabase.rssFeedDao.insert(feed) > 0
+    }
+
+    suspend fun removeFeed(feedName: String): Boolean {
+        return appDatabase.rssFeedDao.remove(feedName) > 0
+    }
+
+    suspend fun getFeeds(): List<RssFeed> {
+        return appDatabase.rssFeedDao.getAll()
+    }
+
+    suspend fun getFeed(feedName: String): RssFeed? {
+        return appDatabase.rssFeedDao.get(feedName)
     }
 
     companion object {
@@ -116,4 +150,3 @@ internal class DataRepository(
         }
     }
 }
-

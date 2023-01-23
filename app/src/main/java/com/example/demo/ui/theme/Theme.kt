@@ -3,7 +3,6 @@ package com.example.demo.ui.theme
 import android.app.Activity
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
