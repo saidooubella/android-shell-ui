@@ -6,11 +6,11 @@ plugins {
 
 android {
 
-    namespace 'com.example.demo'
+    namespace 'com.saidooubella.shellui'
     compileSdk 33
 
     defaultConfig {
-        applicationId "com.example.demo"
+        applicationId "com.saidooubella.shellui"
         minSdk 21
         targetSdk 33
         versionCode 1
@@ -60,6 +60,8 @@ dependencies {
     implementation "androidx.room:room-ktx:2.5.0"
     implementation "androidx.room:room-ktx:2.5.0"
     kapt "androidx.room:room-compiler:2.5.0"
+
+    implementation "androidx.datastore:datastore-preferences:1.0.0"
 
     implementation "androidx.activity:activity-compose:1.6.1"
     implementation "androidx.core:core-ktx:1.9.0"
